@@ -150,6 +150,13 @@ export default function AgencyApp({ user, context }) {
               </Banner>
             )}
 
+            {data.notInstalled > 0 && (
+              <div className="muted" style={{ fontSize: 13, margin: '-8px 0 14px' }}>
+                Showing the {plural(data.summary.subAccounts, 'sub-account')} with the app installed. {plural(data.notInstalled, 'other sub-account')} in
+                your agency {data.notInstalled === 1 ? 'hasn’t' : 'haven’t'} installed it yet. Install it on them from the marketplace to manage them here.
+              </div>
+            )}
+
             <div className="stats">
               <Kpi k="WhatsApp enabled" v={summary.allowed} sub={`/ ${summary.subAccounts}`} icon="building" h={data.settings.accessMode === 'all' ? 'All sub-accounts by default' : 'Only ones you choose'} />
               <Kpi k="Connected numbers" v={summary.connectedNumbers} icon="phone" />
@@ -191,7 +198,7 @@ export default function AgencyApp({ user, context }) {
               </div>
               {rows.length === 0 ? (
                 <Empty icon="search" title={data.subAccounts.length ? 'No sub-accounts match' : 'No sub-accounts yet'}>
-                  {data.subAccounts.length ? 'Try a different search or filter.' : 'Sub-accounts appear here once the app is installed.'}
+                  {data.subAccounts.length ? 'Try a different search or filter.' : 'Install the app on a sub-account from the marketplace, then switch WhatsApp on for it here.'}
                 </Empty>
               ) : (
                 <div className="table-wrap">

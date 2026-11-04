@@ -13,7 +13,8 @@ const mongoose = require('mongoose');
 const AgencySettingsSchema = new mongoose.Schema(
   {
     companyId: { type: String, required: true, unique: true, index: true },
-    accessMode: { type: String, enum: ['all', 'selected'], default: 'all' },
+    // Default OFF: a sub-account gets WhatsApp only after the agency switches it on.
+    accessMode: { type: String, enum: ['all', 'selected'], default: 'selected' },
     allowSelfConnect: { type: Boolean, default: true },
     allowAccessRequests: { type: Boolean, default: true },
     // Cap applied to every sub-account on top of its plan (null = plan limit only).

@@ -67,7 +67,7 @@ class AgencyService {
       msgsBy.set(r._id.l, m);
     }
 
-    const subAccounts = list.map((loc) => {
+    let subAccounts = list.map((loc) => {
       const access = accessBy.get(loc.id) || null;
       const nums = sessionsBy.get(loc.id) || [];
       const sub = subMap[loc.id] || null;
@@ -101,6 +101,9 @@ class AgencyService {
       };
     });
 
+    // Only sub-accounts that actually have the app installed are managed here.
+    const notInstalled = subAccounts.filter((s) => !s.installed).length;
+    subAccounts = subAccounts.filter((s) => s.installed);
     subAccounts.sort((a, b) => (b.request ? 1 : 0) - (a.request ? 1 : 0) || b.connected - a.connected || a.name.localeCompare(b.name));
 
     const summary = {
@@ -112,7 +115,7 @@ class AgencyService {
       messages24h: subAccounts.reduce((n, s) => n + s.messages24h.inbound + s.messages24h.outbound, 0),
     };
 
-    return { summary, settings, subAccounts, syncedAt, agencyInstalled: await this.auth.hasCompanyToken(companyId) };
+    return { summary, settings, subAccounts, notInstalled, syncedAt, agencyInstalled: await this.auth.hasCompanyToken(companyId) };
   }
 
   async setAccess(companyId, locationId, patch, updatedBy) {
