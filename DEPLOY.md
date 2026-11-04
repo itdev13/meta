@@ -114,6 +114,7 @@ Every URL above is prefixed with `https://whatsappapi.vaultsuite.store`.
 # On the VM, as a sudo user
 sudo apt update && sudo apt install -y nginx git
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs
+node -v   # must be v22.12 or newer (the WhatsApp library needs it)
 sudo npm i -g pm2
 pm2 install pm2-logrotate        # keeps logs from filling the disk
 ```
@@ -140,7 +141,7 @@ Start from `backend/.env.example`. Required values:
 | `DATABASE_URL` | Atlas connection string, for example `mongodb+srv://user:pass@cluster/whatsapp-connector` |
 | `PORT` | `3025` |
 | `BACKEND_URL` | `https://whatsappapi.vaultsuite.store` |
-| `FRONTEND_URL` | `https://whatsapp.vaultsuite.store` |
+| `FRONTEND_URL` | `https://whatsapp.vaultsuite.store`. **Required** for share-to-connect links (`/connect/<token>`). |
 | `INSTANCE_ID` | `wa-api-1`. Must be unique per running process. |
 | `ENCRYPTION_KEY` | `openssl rand -hex 32`. **Back it up.** If you lose it, every linked number has to be re-scanned. |
 | `JWT_SECRET` | `openssl rand -hex 32` |
@@ -163,6 +164,7 @@ Start from `backend/.env.example`. Required values:
 | `WA_DEFAULT_MIN_DELAY_MS` / `WA_DEFAULT_DAILY_LIMIT` | `1500` / `1000` (safe defaults) |
 | `BAILEYS_LOG_LEVEL` | `silent`, or `warn` while debugging |
 | `ADMIN_API_KEY` | `openssl rand -hex 24` (for `/admin/stats`) |
+| `PROXY_POOL_JSON` | Optional. Proxies per country, for example `{"GB":["http://user:pass@gb1.example:8000"],"IN":["socks5://u:p@in1.example:1080"]}`. Each number can pick a country in its settings. Leave it empty for direct connections. |
 
 ```bash
 chmod 600 /opt/whatsapp-connector/backend/.env
@@ -262,6 +264,10 @@ Use a test agency and test sub-account, and a spare phone number. Don't use a nu
     - **Expect:** the number reconnects by itself within about 10 seconds, with no new scan.
 11. **Unlink.** Number card → Unlink.
     - **Expect:** the device disappears from the phone's Linked devices list.
+12. **Share link.** Number card → Share link → copy it → open it on another device.
+    - **Expect:** the client can scan the QR there with no CRM login, and the number appears in the sub-account.
+13. **Routing.** With two numbers linked, send `{WA#2} hello` from Conversations.
+    - **Expect:** it goes out from WhatsApp #2, and the `{WA#2}` token is removed from the message.
 
 If any step fails, check `pm2 logs whatsapp-connector-api`. Every GHL call that fails is logged with its status code and response body.
 

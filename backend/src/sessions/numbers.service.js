@@ -4,7 +4,7 @@ const { clearAuthState } = require('../whatsapp/mongo-auth-state');
 const { digits } = require('../whatsapp/jid');
 
 const TERMINAL = ['logged_out', 'banned', 'replaced', 'qr_expired'];
-const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups'];
+const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups', 'doNotCreateContacts', 'disableIncoming'];
 const AGENCY_SETTINGS = ['minDelayMs', 'dailyLimit'];
 
 function httpError(message, statusCode, code) {
@@ -29,10 +29,14 @@ class NumbersService {
       id: String(doc._id),
       locationId: doc.locationId,
       label: doc.label,
+      index: doc.index || null,
+      name: doc.index ? `WhatsApp #${doc.index}` : 'WhatsApp',
+      assignedUserIds: doc.assignedUserIds || [],
       phoneNumber: doc.phoneNumber || null,
       waName: doc.waName || '',
       status,
       pausedReason: doc.pausedReason || '',
+      reconnectAttempt: live?.retries || 0,
       isDefault: !!doc.isDefault,
       isActive: doc.isActive,
       qr: status === 'qr' ? live?.qr || null : null,
@@ -42,6 +46,11 @@ class NumbersService {
         typingSimulation: doc.settings?.typingSimulation !== false,
         syncPhoneReplies: doc.settings?.syncPhoneReplies !== false,
         syncGroups: !!doc.settings?.syncGroups,
+        groupMode: doc.settings?.groupMode || 'all',
+        doNotCreateContacts: !!doc.settings?.doNotCreateContacts,
+        disableIncoming: !!doc.settings?.disableIncoming,
+        blacklist: doc.settings?.blacklist || [],
+        proxyCountry: doc.settings?.proxyCountry || '',
         minDelayMs: doc.settings?.minDelayMs ?? null,
         dailyLimit: doc.settings?.dailyLimit ?? null,
       },
@@ -57,7 +66,17 @@ class NumbersService {
     };
   }
 
+  /** Give every number in the location a stable index ("WhatsApp #n"), oldest first. */
+  async ensureIndexes(locationId) {
+    const missing = await WaSession.find({ locationId, index: { $in: [null, 0] } }).sort({ createdAt: 1 }).select('_id').lean();
+    if (!missing.length) return;
+    const top = await WaSession.findOne({ locationId, index: { $gt: 0 } }).sort({ index: -1 }).select('index').lean();
+    let next = (top?.index || 0) + 1;
+    for (const m of missing) await WaSession.updateOne({ _id: m._id, index: { $in: [null, 0] } }, { $set: { index: next++ } });
+  }
+
   async list(locationId) {
+    await this.ensureIndexes(locationId);
     const docs = await WaSession.find({ locationId }).sort({ isDefault: -1, createdAt: 1 }).lean();
     return docs.map((d) => this._public(d));
   }
@@ -106,6 +125,7 @@ class NumbersService {
         companyId: ev.companyId,
         label: String(label).slice(0, 60),
         isDefault: isFirst,
+        index: ((await WaSession.findOne({ locationId }).sort({ index: -1 }).select('index').lean())?.index || 0) + 1,
         createdBy: { userId: auth.userId, name: auth.name, scope: auth.scope },
       });
     } else {
@@ -192,11 +212,28 @@ class NumbersService {
       if (k === 'minDelayMs' && v !== null && v < 300) throw httpError('Minimum delay must be at least 300 ms.', 400);
       $set[`settings.${k}`] = v === null ? null : Math.round(v);
     }
+    if ('assignedUserIds' in patch) {
+      if (!Array.isArray(patch.assignedUserIds)) throw httpError('assignedUserIds must be an array', 400);
+      $set.assignedUserIds = [...new Set(patch.assignedUserIds.map((x) => String(x).trim()).filter(Boolean))].slice(0, 100);
+    }
+    if ('blacklist' in s) {
+      if (!Array.isArray(s.blacklist)) throw httpError('blacklist must be an array', 400);
+      const nums = s.blacklist.map((x) => String(x).replace(/[^\d]/g, '')).filter((d) => d.length >= 7 && d.length <= 15);
+      $set['settings.blacklist'] = [...new Set(nums)].slice(0, 1000).map((d) => `+${d}`);
+    }
+    if ('groupMode' in s) {
+      if (!['all', 'selected'].includes(s.groupMode)) throw httpError('groupMode must be "all" or "selected"', 400);
+      $set['settings.groupMode'] = s.groupMode;
+    }
+    if ('proxyCountry' in s) $set['settings.proxyCountry'] = String(s.proxyCountry || '').toUpperCase().slice(0, 2);
     if (patch.isDefault === true) {
       await WaSession.updateMany({ locationId, _id: { $ne: doc._id } }, { $set: { isDefault: false } });
       $set.isDefault = true;
     }
-    if (Object.keys($set).length) await WaSession.updateOne({ _id: doc._id }, { $set });
+    if (Object.keys($set).length) {
+      await WaSession.updateOne({ _id: doc._id }, { $set });
+      this.manager.emit('session.settings', { sessionId: String(doc._id), locationId });
+    }
     return this._public(await WaSession.findById(doc._id).lean());
   }
 

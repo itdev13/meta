@@ -8,6 +8,12 @@ function httpError(message, statusCode, code) {
   return Object.assign(new Error(message), { statusCode, code });
 }
 
+/** Effective per-group sync state: explicit flag wins, else 'all' → on, 'selected' → off. */
+function effectiveEnabled(groupMode, explicit) {
+  if (explicit === true || explicit === false) return explicit;
+  return groupMode !== 'selected';
+}
+
 /**
  * WhatsApp group directory + linking (feature: groups).
  *
@@ -66,12 +72,14 @@ class GroupsService {
   }
 
   /**
-   * GET /groups → { numbers: [{ numberId, phoneNumber, label, connected, syncGroups, groups, error }] }.
-   * Each group carries { mapped, contactId, lastInboundAt, lastOutboundAt } from ContactMapping.
+   * GET /groups → { numbers: [{ numberId, phoneNumber, label, connected, syncGroups, groupMode, groups, error }] }.
+   * Each group carries { mapped, contactId, lastActivityAt } from ContactMapping, plus
+   * explicit (true|false|null — the stored per-group flag) and enabled (effective for this
+   * number's groupMode: 'all' → !== false, 'selected' → === true; independent of syncGroups).
    */
   async list(locationId, { numberId, refresh = false } = {}) {
     const sessions = await this._sessions(locationId, numberId);
-    const mappings = await ContactMapping.find({ locationId, isGroup: true }).select('waJid ghlContactId lastSessionId lastInboundAt lastOutboundAt groupSubject').lean();
+    const mappings = await ContactMapping.find({ locationId, isGroup: true }).select('waJid ghlContactId lastSessionId lastInboundAt lastOutboundAt groupSubject groupEnabled').lean();
     const byJid = new Map(mappings.map((m) => [m.waJid, m]));
 
     const numbers = [];
@@ -83,6 +91,7 @@ class GroupsService {
         label: s.label || '',
         connected,
         syncGroups: !!s.settings?.syncGroups,
+        groupMode: s.settings?.groupMode === 'selected' ? 'selected' : 'all',
         groups: [],
         error: '',
       };
@@ -91,10 +100,13 @@ class GroupsService {
           const groups = await this._directory(s._id, { refresh });
           row.groups = groups.map((g) => {
             const m = byJid.get(g.jid);
+            const explicit = typeof m?.groupEnabled === 'boolean' ? m.groupEnabled : null;
             return {
               ...g,
-              mapped: !!m,
+              mapped: !!m?.ghlContactId,
               contactId: m?.ghlContactId || null,
+              explicit,
+              enabled: effectiveEnabled(row.groupMode, explicit),
               lastActivityAt: m ? [m.lastInboundAt, m.lastOutboundAt].filter(Boolean).sort().pop() || null : null,
             };
           });
@@ -140,6 +152,31 @@ class GroupsService {
   }
 
   /**
+   * POST /groups/toggle { numberId, groupJid, enabled } → { groupJid, enabled }.
+   * Stores the flag on the group's ContactMapping (location-wide, shared by every number in the
+   * group). No GHL contact is created: if the group has never synced, a contact-less placeholder
+   * row carries the flag and the contact is created on its first synced message.
+   */
+  async toggle(locationId, { numberId, groupJid, enabled } = {}) {
+    const jid = toGroupJid(groupJid);
+    if (!jid) throw httpError('A valid WhatsApp group id is required.', 400, 'BAD_GROUP');
+    if (typeof enabled !== 'boolean') throw httpError('enabled must be true or false.', 400, 'BAD_REQUEST');
+    let sessionId = '';
+    if (numberId) sessionId = String((await this._sessions(locationId, numberId))[0]._id);
+    const subject = (sessionId && this.contacts.cachedGroupMeta(sessionId, jid)?.subject) || this._dirSubject(jid);
+    const value = await this.contacts.setGroupFlag(locationId, jid, enabled, { sessionId, subject });
+    return { groupJid: jid, enabled: value };
+  }
+
+  _dirSubject(jid) {
+    for (const { groups } of this._dir.values()) {
+      const hit = groups.find((g) => g.jid === jid);
+      if (hit) return hit.subject;
+    }
+    return '';
+  }
+
+  /**
    * Find a group by jid or by (case-insensitive) name among the location's connected numbers.
    * → { jid, subject, sessionId } — sessionId is a number that is a member.
    */
@@ -172,3 +209,4 @@ class GroupsService {
 }
 
 module.exports = GroupsService;
+module.exports.effectiveEnabled = effectiveEnabled;

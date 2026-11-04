@@ -25,6 +25,9 @@ const MessageLogSchema = new mongoose.Schema(
     preview: { type: String, default: '' },   // first 140 chars, for the activity feed
     status: { type: String, enum: ['pending', 'sent', 'delivered', 'read', 'failed'], default: 'sent' },
     error: { type: String, default: '' },
+    // feature: routing — which rule picked the sending number (outbound only):
+    // explicit | override | tag | assigned_user | sender | last_used | default | recent | group
+    routedBy: { type: String },
     expiresAt: { type: Date, default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), index: { expires: 0 } },
   },
   { collection: 'message_logs', timestamps: { createdAt: true, updatedAt: true } },

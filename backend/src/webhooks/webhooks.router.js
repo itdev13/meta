@@ -28,7 +28,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
 
   // ── Outbound: CRM → WhatsApp ────────────────────────────────
   router.post('/ghl-outbound', ghlSignatureGuard, async (req, res) => {
-    const { locationId, contactId, messageId, message, attachments, phone } = req.body || {};
+    const { locationId, contactId, messageId, message, attachments, phone, userId } = req.body || {};
     // Ack immediately — sends are paced (seconds apart) and GHL must not time out / retry.
     res.json({ ok: true });
     if (!locationId || !messageId) return;
@@ -43,6 +43,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
         attachments: Array.isArray(attachments) ? attachments : [],
         source: 'ghl',
         ghlMessageId: messageId,
+        senderUserId: userId, // the GHL user who hit send (routing: their assigned number)
       });
       // Delivery/read status follows from WhatsApp receipts (MessagingService.applyReceipts).
     } catch (error) {

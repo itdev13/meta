@@ -1,0 +1,13 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FB25C"/><stop offset="1" stop-color="#0A6B34"/></linearGradient></defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#g)"/>
+  <rect x="17" y="17" width="478" height="478" rx="115" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="2"/>
+  <path d="M138 112 H334 Q378 112 378 156 V268 Q378 312 334 312 H198 L138 360 V312 Q94 312 94 268 V156 Q94 112 138 112 Z" fill="#fff"/>
+  <rect x="142" y="176" width="186" height="32" rx="16" fill="#10883F"/>
+  <rect x="142" y="230" width="122" height="32" rx="16" fill="#10883F" fill-opacity=".55"/>
+  <!-- WhatsApp-style badge -->
+  <circle cx="378" cy="378" r="92" fill="#fff"/>
+  <circle cx="378" cy="378" r="78" fill="#25D366"/>
+  <path d="M378 322a56 56 0 1 1-28.2 104.4L324 434l8.5-24.6A56 56 0 0 1 378 322z" fill="#fff"/>
+  <g transform="translate(350 350) scale(2.35)"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" fill="#25D366"/></g>
+</svg>

@@ -14,5 +14,7 @@ export const groupsApi = (locationId) => {
     },
     /** Create / ensure the group's CRM contact now. → { jid, subject, contactId, created } */
     link: (groupJid, numberId) => api.post(`${base}/link`, { groupJid, ...(numberId ? { numberId } : {}) }),
+    /** Explicitly enable / disable syncing one group on one number. */
+    toggle: (numberId, groupJid, enabled) => api.post(`${base}/toggle`, { numberId, groupJid, enabled: !!enabled }),
   };
 };

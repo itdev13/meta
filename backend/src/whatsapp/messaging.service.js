@@ -4,6 +4,7 @@ const MessageLog = require('../schemas/message-log.schema');
 const { fetchMedia } = require('../media/media.store');
 const { phoneToJid, isPnJid, isGroupJid, toGroupJid } = require('./jid');
 const hooks = require('../features/hooks');
+const { extractOverride, resolveNumberRef, tagPhone, samePhone, numberName, TtlCache } = require('../features/routing/routing');
 
 const RECEIPT = { 3: 'delivered', 4: 'read', 5: 'read' };
 const RANK = { pending: 0, sent: 1, delivered: 2, read: 3, failed: -1 };
@@ -30,25 +31,94 @@ class MessagingService {
     this.ghl = ghlService;
     this.access = accessService;
     this.subscription = subscriptionService;
+    this._contactCache = new TtlCache(60_000);
   }
 
-  /**
-   * Choose the number to send from: explicit → the one the contact last wrote to → the
-   * sub-account default → the most recently active connected number.
-   */
-  async pickSession(locationId, { preferredSessionId, mapping } = {}) {
+  async _liveSessions(locationId) {
     const connected = await WaSession.find({ locationId, isActive: true, status: 'connected' }).sort({ lastMessageAt: -1 }).lean();
     const live = connected.filter((s) => this.manager.isConnected(s._id));
     if (!live.length) {
       throw codedError('No WhatsApp number is connected for this sub-account. Link one in the WhatsApp app.', 'NO_NUMBER', 409);
     }
-    const byId = (id) => id && live.find((s) => String(s._id) === String(id));
+    return live;
+  }
+
+  /** GHL contact, cached for 60s (routing reads tags + assignedTo on every send). */
+  async _contact(locationId, contactId) {
+    if (!contactId) return null;
+    const key = `${locationId}:${contactId}`;
+    const cached = this._contactCache.get(key);
+    if (cached !== undefined) return cached;
+    const c = await this.ghl.getContact(locationId, contactId);
+    if (c) this._contactCache.set(key, c); // failures aren't cached → retried next send
+    return c;
+  }
+
+  /**
+   * Choose the number to send from (feature: routing). Only live numbers count; a step that
+   * points at an offline/unknown number falls through to the next one.
+   *   1. explicit   — preferredSessionId (id, index "2"/"#2"/"WA#2", or phone)
+   *   2. override   — {WA#n} in the text (always stripped, even if #n is offline)
+   *   3. tag        — contact tag "wa: +1555…" → the linked number with that phone
+   *   4. assigned_user — contact.assignedTo → number whose assignedUserIds has that user
+   *   5. sender     — senderUserId (the GHL user who clicked send) → their number
+   *   6. last_used  — mapping.lastSessionId
+   *   7. default    — the sub-account default, then the most recently active number
+   * Returns { session, routedBy, text } (text = message with override tokens removed).
+   * Contact lookups (3, 4) are skipped for groups and when only one number is live.
+   */
+  async pickRoute(locationId, { preferredSessionId, mapping, text, contactId, senderUserId, isGroup = false } = {}) {
+    const live = await this._liveSessions(locationId);
+    const override = extractOverride(text);
+    const out = (session, routedBy, note = '') => {
+      console.log(`[Route] ${locationId}${contactId ? ` contact=${contactId}` : ''} → ${numberName(session)} by ${routedBy}${note ? ` (${note})` : ''}`);
+      return { session, routedBy, text: override.text };
+    };
+    const skipped = [];
+
     if (preferredSessionId) {
-      const s = byId(preferredSessionId);
-      if (!s) throw codedError('The selected WhatsApp number is not connected.', 'NUMBER_OFFLINE', 409);
-      return s;
+      const s = resolveNumberRef(live, preferredSessionId);
+      if (s) return out(s, 'explicit');
+      skipped.push(`explicit ${preferredSessionId} offline`);
     }
-    return byId(mapping?.lastSessionId) || live.find((s) => s.isDefault) || live[0];
+    if (override.index !== null) {
+      const s = live.find((x) => Number(x.index) === override.index);
+      if (s) return out(s, 'override');
+      skipped.push(`{WA#${override.index}} offline`);
+    }
+
+    const byId = (id) => id && live.find((s) => String(s._id) === String(id));
+    const byUser = (uid) => uid && live.find((s) => (s.assignedUserIds || []).includes(String(uid)));
+
+    if (live.length > 1) {
+      if (contactId && !isGroup && !mapping?.isGroup) {
+        const contact = await this._contact(locationId, contactId);
+        if (contact) {
+          for (const tag of contact.tags || []) {
+            const phone = tagPhone(tag);
+            if (!phone) continue;
+            const s = live.find((x) => samePhone(x.phoneNumber, phone));
+            if (s) return out(s, 'tag', tag);
+            skipped.push(`tag ${tag} offline`);
+          }
+          const a = byUser(contact.assignedTo);
+          if (a) return out(a, 'assigned_user', contact.assignedTo);
+        }
+      }
+      const snd = byUser(senderUserId);
+      if (snd) return out(snd, 'sender', senderUserId);
+    }
+
+    const last = byId(mapping?.lastSessionId);
+    if (last) return out(last, 'last_used', skipped.join('; '));
+    const def = live.find((s) => s.isDefault);
+    if (def) return out(def, 'default', skipped.join('; '));
+    return out(live[0], 'recent', skipped.join('; '));
+  }
+
+  /** Back-compat: just the session (used by workflows checkNumber and group sends). */
+  async pickSession(locationId, opts = {}) {
+    return (await this.pickRoute(locationId, opts)).session;
   }
 
   /**
@@ -56,12 +126,9 @@ class MessagingService {
    * last came through → any other connected number that is a member.
    */
   async pickGroupSession(locationId, groupJid, { preferredSessionId, mapping } = {}) {
-    if (preferredSessionId) return this.pickSession(locationId, { preferredSessionId });
-    const connected = await WaSession.find({ locationId, isActive: true, status: 'connected' }).sort({ lastMessageAt: -1 }).lean();
-    const live = connected.filter((s) => this.manager.isConnected(s._id));
-    if (!live.length) {
-      throw codedError('No WhatsApp number is connected for this sub-account. Link one in the WhatsApp app.', 'NO_NUMBER', 409);
-    }
+    const live = await this._liveSessions(locationId);
+    const explicit = preferredSessionId && resolveNumberRef(live, preferredSessionId);
+    if (explicit) return explicit;
     const last = mapping?.lastSessionId && live.find((s) => String(s._id) === String(mapping.lastSessionId));
     if (last) return last;
     const ordered = [...live.filter((s) => s.isDefault), ...live.filter((s) => !s.isDefault)];
@@ -112,7 +179,7 @@ class MessagingService {
    *   groupJid: (optional, feature: groups) send to this WhatsApp group instead of a person.
    *             A GHL contact whose mapping isGroup is also sent to its group automatically.
    */
-  async send({ locationId, contactId, phone, text, attachments = [], source, ghlMessageId, preferredSessionId, mirror = false, bypassConsent = false, meta = {}, groupJid }) {
+  async send({ locationId, contactId, phone, text, attachments = [], source, ghlMessageId, preferredSessionId, mirror = false, bypassConsent = false, meta = {}, groupJid, senderUserId }) {
     await this.subscription.ensureEntitled(locationId);
     const ev = await this.access.ensureAllowed(locationId);
 
@@ -125,13 +192,20 @@ class MessagingService {
 
     let recipientPhone = phone;
     if (!targetGroup && !mapping && !recipientPhone && contactId) {
-      const c = await this.ghl.getContact(locationId, contactId);
+      const c = await this._contact(locationId, contactId);
       recipientPhone = c?.phone;
     }
 
-    const session = targetGroup
-      ? await this.pickGroupSession(locationId, targetGroup, { preferredSessionId, mapping })
-      : await this.pickSession(locationId, { preferredSessionId, mapping });
+    // Routing (feature: routing). {WA#n} tokens are always stripped from the text we send + log.
+    let session;
+    let routedBy;
+    if (targetGroup) {
+      text = extractOverride(text).text;
+      session = await this.pickGroupSession(locationId, targetGroup, { preferredSessionId, mapping });
+      routedBy = 'group';
+    } else {
+      ({ session, routedBy, text } = await this.pickRoute(locationId, { preferredSessionId, mapping, text, contactId, senderUserId }));
+    }
     const jid = await this._recipient(session, { mapping, phone: recipientPhone, groupJid: targetGroup });
 
     if (contactId && !mapping && isPnJid(jid)) {
@@ -172,6 +246,7 @@ class MessagingService {
         kind: part.kind,
         preview: previewOf(part.kind === 'text' ? text : i === 0 ? text : '', part.kind),
         status: 'sent',
+        routedBy,
       }).catch((err) => console.warn(`[Send] log failed: ${err.message}`));
     }
 
@@ -193,7 +268,7 @@ class MessagingService {
     }
 
     hooks.afterSend({ ...hookCtx, text, waMessageIds }).catch(() => {});
-    return { session, jid, waMessageIds };
+    return { session, jid, waMessageIds, routedBy };
   }
 
   /** WhatsApp delivery/read receipts → MessageLog + GHL message status. */

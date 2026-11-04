@@ -4,7 +4,7 @@ const WaSession = require('../schemas/wa-session.schema');
 const Installation = require('../schemas/installation.schema');
 const MessageLog = require('../schemas/message-log.schema');
 const { saveMedia } = require('../media/media.store');
-const { normalizeJid, isPnJid, isLidJid, isGroupJid, isIgnorableJid, jidToPhone } = require('./jid');
+const { normalizeJid, isPnJid, isLidJid, isGroupJid, isIgnorableJid, jidToPhone, digits } = require('./jid');
 const { TRIGGERS } = require('../workflows/trigger-keys');
 const hooks = require('../features/hooks');
 const { formatError } = require('../utils/format-error');
@@ -14,6 +14,22 @@ const DOWNLOAD_MAX = 64 * 1024 * 1024;
 const SKIP_TYPES = new Set(['protocolMessage', 'senderKeyDistributionMessage', 'messageContextInfo', 'keepInChatMessage', 'pinInChatMessage', 'encReactionMessage', 'pollUpdateMessage']);
 const MEDIA_KIND = { imageMessage: 'image', videoMessage: 'video', audioMessage: 'audio', documentMessage: 'document', stickerMessage: 'sticker', ptvMessage: 'video' };
 const silent = pino({ level: 'silent' });
+
+// feature: inbound controls — blacklist digits per cached session doc (docs are replaced on refresh).
+const _blacklists = new WeakMap();
+function blacklistOf(doc) {
+  if (!doc) return null;
+  if (_blacklists.has(doc)) return _blacklists.get(doc);
+  const list = (doc.settings?.blacklist || []).map(digits).filter(Boolean);
+  const set = list.length ? new Set(list) : null;
+  _blacklists.set(doc, set);
+  return set;
+}
+
+/** One concise line per dropped message (feature: inbound controls / groups). */
+function logDrop(session, msg, reason, who) {
+  console.debug(`[Inbound] drop ${reason} | ${session.id} ${msg?.key?.id || '?'}${who ? ` ${who}` : ''}`);
+}
 
 function vcardPhone(vcard) {
   const m = /TEL[^:]*:([+\d\s-]+)/i.exec(vcard || '');
@@ -84,6 +100,8 @@ class InboundService {
     this.workflows = workflowsService;
     this._sessionCache = new Map(); // id → { doc, at }
 
+    // Number settings saved in the UI apply on the next message (no 30s cache lag).
+    sessionManager.on('session.settings', ({ sessionId }) => this._sessionCache.delete(String(sessionId)));
     sessionManager.on('messages.upsert', (evt) => this.onUpsert(evt).catch((err) => console.error(`[Inbound] upsert failed | ${formatError(err)}`)));
     sessionManager.on('messages.update', ({ session, updates }) =>
       this.messaging.applyReceipts(session, updates).catch((err) => console.warn(`[Inbound] receipts failed: ${err.message}`)),
@@ -145,7 +163,13 @@ class InboundService {
     const pnJid = isPnJid(remoteJid) ? remoteJid : normalizeJid(msg.key.senderPn || msg.key.remoteJidAlt) || null;
     const lidJid = isLidJid(remoteJid) ? remoteJid : normalizeJid(msg.key.senderLid) || null;
     const fromMe = !!msg.key.fromMe;
+    // Inbound controls — all before MessageLog / GHL / triggers / hooks.
+    if (doc.settings?.disableIncoming) return logDrop(session, msg, 'incoming_disabled');
     if (fromMe && doc.settings?.syncPhoneReplies === false) return;
+    if (await this._blacklisted(session, doc, pnJid, lidJid)) return logDrop(session, msg, 'blacklisted', jidToPhone(pnJid) || lidJid);
+    const noCreate = !!doc.settings?.doNotCreateContacts;
+    const lookup = { locationId: session.locationId, sessionId: session.id, pnJid, lidJid, pushName: fromMe ? '' : msg.pushName };
+    if (noCreate && !(await this.contacts.findExisting(lookup))) return logDrop(session, msg, 'unknown_contact', jidToPhone(pnJid) || lidJid);
 
     // Dedup FIRST — WhatsApp re-delivers on reconnect; the unique index makes this atomic.
     let log;
@@ -197,6 +221,10 @@ class InboundService {
       if (!err.contactDeleted) throw err;
       // The GHL contact was deleted — forget the mapping, recreate once, retry.
       await this.contacts.drop(mapping._id);
+      if (noCreate && !(await this.contacts.findExisting(lookup))) {
+        await MessageLog.deleteOne({ _id: log._id }).catch(() => {});
+        return logDrop(session, msg, 'unknown_contact', jidToPhone(pnJid) || lidJid);
+      }
       const again = await this.contacts.resolveInbound({ locationId: session.locationId, sessionId: session.id, linkedNumber: doc.phoneNumber, pnJid, lidJid, pushName: msg.pushName });
       payload.contactId = again.mapping.ghlContactId;
       result = fromMe ? await this.ghl.addOutboundMessage(session.locationId, payload) : await this.ghl.addInboundMessage(session.locationId, payload);
@@ -250,6 +278,43 @@ class InboundService {
       .catch(() => {});
   }
 
+  /**
+   * feature: inbound controls — is this phone (pn jid, or the phone stored on the LID's mapping
+   * when WhatsApp gave us no senderPn) on the number's blacklist?
+   */
+  async _blacklisted(session, doc, pnJid, lidJid) {
+    const list = blacklistOf(doc);
+    if (!list) return false;
+    let phone = jidToPhone(pnJid);
+    if (!phone && lidJid) {
+      const known = await this.contacts.findByIdentity(session.locationId, { lidJid }).catch(() => null);
+      phone = known?.phone || jidToPhone(known?.waJid);
+    }
+    return !!phone && list.has(digits(phone));
+  }
+
+  /** feature: groups — does this group sync on this number? (groupMode + per-group flag) */
+  async _groupAllowed(session, doc, groupJid) {
+    const flag = await this.contacts.groupFlag(session.locationId, groupJid);
+    if (flag !== null) return flag;
+    return doc.settings?.groupMode !== 'selected';
+  }
+
+  /** Group participant's phone for the blacklist, without network calls. */
+  async _participantPhone(session, msg) {
+    const participant = normalizeJid(msg.key.participant || msg.participant) || null;
+    let pn = isPnJid(participant) ? participant : normalizeJid(msg.key.participantPn || msg.key.participantAlt || msg.participantPn) || null;
+    if (!pn && isLidJid(participant)) {
+      const meta = this.contacts.cachedGroupMeta(session.id, normalizeJid(msg.key.remoteJid));
+      pn = meta?.lidToPn?.get(participant) || null;
+      if (!pn) {
+        const known = await this.contacts.findByIdentity(session.locationId, { lidJid: participant }).catch(() => null);
+        return known?.phone || jidToPhone(known?.waJid) || '';
+      }
+    }
+    return jidToPhone(pn);
+  }
+
   // ── Groups (feature: groups) ──────────────────────────────────
 
   /** → { subject, meta } for a group; falls back to the stored subject when WhatsApp won't answer. */
@@ -287,7 +352,15 @@ class InboundService {
     const info = describe(msg.message);
     if (!info) return;
     const fromMe = !!msg.key.fromMe;
+    // Inbound controls + per-group enable — all before MessageLog / GHL / triggers / hooks.
+    // (doNotCreateContacts does not apply: the group's own enable flag governs its contact.)
+    if (doc.settings?.disableIncoming) return logDrop(session, msg, 'incoming_disabled', groupJid);
     if (fromMe && doc.settings?.syncPhoneReplies === false) return;
+    if (!(await this._groupAllowed(session, doc, groupJid))) return logDrop(session, msg, 'group_disabled', groupJid);
+    if (!fromMe && blacklistOf(doc)) {
+      const phone = await this._participantPhone(session, msg);
+      if (phone && blacklistOf(doc).has(digits(phone))) return logDrop(session, msg, 'blacklisted', `${phone} in ${groupJid}`);
+    }
 
     let log;
     try {
@@ -392,7 +465,8 @@ class InboundService {
     if (info.media.size && info.media.size > DOWNLOAD_MAX) return [];
     let buffer;
     try {
-      buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: silent, reuploadRequest: sock.updateMediaMessage });
+      const httpsAgent = this.manager.getProxyAgent ? this.manager.getProxyAgent(session.id) : undefined;
+      buffer = await downloadMediaMessage(msg, 'buffer', httpsAgent ? { options: { httpsAgent } } : {}, { logger: silent, reuploadRequest: sock.updateMediaMessage });
     } catch (err) {
       console.warn(`[Inbound] media download failed (${session.id}): ${err.message}`);
       return [];

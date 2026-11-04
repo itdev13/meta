@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FB25C"/>
+      <stop offset="1" stop-color="#0A6B34"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#g)"/>
+  <rect x="17" y="17" width="478" height="478" rx="115" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  <!-- speech bubble with a tail at bottom-left -->
+  <path d="M150 128 H362 Q410 128 410 176 V300 Q410 348 362 348 H214 L150 400 V348 Q102 348 102 300 V176 Q102 128 150 128 Z" fill="#ffffff"/>
+  <!-- the two green "lines" -->
+  <rect x="156" y="198" width="200" height="34" rx="17" fill="#10883F"/>
+  <rect x="156" y="256" width="132" height="34" rx="17" fill="#10883F" fill-opacity="0.55"/>
+</svg>

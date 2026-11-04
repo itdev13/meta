@@ -17,6 +17,8 @@ function field(data, ...names) {
  *
  *   GET  /api/locations/:locationId/groups?numberId=&refresh=1   group directory per number
  *   POST /api/locations/:locationId/groups/link { groupJid, numberId? }  create/ensure the CRM contact
+ *   POST /api/locations/:locationId/groups/toggle { numberId, groupJid, enabled } → { groupJid, enabled }
+ *        per-group sync flag (with settings.groupMode 'all' | 'selected'); never creates a contact
  *   POST /workflows/actions/send-to-group  (key ACTIONS.SEND_TO_GROUP)
  *        data: { groupJid | groupName, message, mediaUrl?, numberId? } → { sent, groupJid, … }
  */
@@ -38,6 +40,7 @@ function register({ app, express, guards, workflowAction, services }) {
     wrap((req) => groups.list(req.locationId, { numberId: req.query.numberId || undefined, refresh: req.query.refresh === '1' || req.query.refresh === 'true' })),
   );
   router.post('/link', wrap((req) => groups.link(req.locationId, req.body || {})));
+  router.post('/toggle', wrap((req) => groups.toggle(req.locationId, req.body || {})));
 
   // apiLimiter already runs on /api/locations/:locationId (core location router), so not again here.
   app.use('/api/locations/:locationId/groups', router);

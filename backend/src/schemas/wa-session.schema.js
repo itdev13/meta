@@ -22,6 +22,10 @@ const WaSessionSchema = new mongoose.Schema(
     locationId: { type: String, required: true, index: true },
     companyId: { type: String, index: true },
     label: { type: String, default: '' },
+    // Stable per-location number: "WhatsApp #<index>". Used by the {WA#n} routing override.
+    index: { type: Number, index: true },
+    // feature: routing — GHL user ids this number is assigned to.
+    assignedUserIds: { type: [String], default: [] },
 
     phoneNumber: { type: String },        // E.164, set once linked
     waJid: { type: String },              // normalised own jid, e.g. 919999999999@s.whatsapp.net
@@ -42,6 +46,15 @@ const WaSessionSchema = new mongoose.Schema(
       // feature: groups. Off = group chats are dropped (legacy behaviour). On = each group syncs
       // as one CRM contact. (ignoreGroups above is legacy and unused.)
       syncGroups: { type: Boolean, default: false },
+      // feature: groups. 'all' = every group syncs when syncGroups is on; 'selected' = only groups
+      // explicitly enabled in the groups list.
+      groupMode: { type: String, enum: ['all', 'selected'], default: 'all' },
+      // feature: inbound controls
+      doNotCreateContacts: { type: Boolean, default: false }, // unknown senders are dropped, not created
+      disableIncoming: { type: Boolean, default: false },     // drop all inbound + phone-reply sync; sending still works
+      blacklist: { type: [String], default: [] },             // E.164 numbers whose inbound is silently dropped
+      // feature: proxy — ISO country code chosen from the configured proxy pool ('' = direct)
+      proxyCountry: { type: String, default: '' },
       minDelayMs: { type: Number, default: null },
       dailyLimit: { type: Number, default: null },
     },

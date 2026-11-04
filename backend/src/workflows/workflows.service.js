@@ -16,6 +16,15 @@ function field(data, ...names) {
 }
 
 /**
+ * Workflow "send from" field (feature: routing). Passed through as-is; MessagingService.pickRoute
+ * resolves it centrally — a session id, an index ("2", "#2", "WA#2") or a phone number. An
+ * offline/unknown number falls through to the normal routing order instead of failing.
+ */
+function numberRef(data) {
+  return field(data, 'numberId', 'fromNumber', 'sendFrom') || undefined;
+}
+
+/**
  * GHL Workflows: trigger subscriptions (GHL tells us which workflows listen to which trigger),
  * firing triggers, and executing actions.
  */
@@ -114,7 +123,7 @@ class WorkflowsService {
     const text = field(data, 'message', 'text', 'body');
     if (!contactId) throw Object.assign(new Error('This action needs a contact'), { code: 'NO_PHONE' });
     try {
-      const r = await this.messaging.send({ locationId, contactId, text, source: 'workflow', mirror: true, preferredSessionId: field(data, 'numberId') || undefined });
+      const r = await this.messaging.send({ locationId, contactId, text, source: 'workflow', mirror: true, preferredSessionId: numberRef(data) });
       return { sent: true, whatsappMessageId: r.waMessageIds[0], linkedNumber: r.session.phoneNumber };
     } catch (err) {
       this._failed(locationId, contactId, err, text).catch(() => {});
@@ -128,7 +137,7 @@ class WorkflowsService {
     const caption = field(data, 'caption', 'message');
     if (!url) throw Object.assign(new Error('Media URL is required'), { code: 'EMPTY' });
     try {
-      const r = await this.messaging.send({ locationId, contactId, text: caption, attachments: [url], source: 'workflow', mirror: true, preferredSessionId: field(data, 'numberId') || undefined });
+      const r = await this.messaging.send({ locationId, contactId, text: caption, attachments: [url], source: 'workflow', mirror: true, preferredSessionId: numberRef(data) });
       return { sent: true, whatsappMessageId: r.waMessageIds[0] };
     } catch (err) {
       this._failed(locationId, contactId, err, caption).catch(() => {});
@@ -143,7 +152,7 @@ class WorkflowsService {
     const text = field(data, 'message', 'text');
     if (!phone) throw Object.assign(new Error('Phone number is required'), { code: 'NO_PHONE' });
     try {
-      const r = await this.messaging.send({ locationId, phone, text, attachments: [field(data, 'mediaUrl')].filter(Boolean), source: 'workflow' });
+      const r = await this.messaging.send({ locationId, phone, text, attachments: [field(data, 'mediaUrl')].filter(Boolean), source: 'workflow', preferredSessionId: numberRef(data) });
       return { sent: true, whatsappMessageId: r.waMessageIds[0] };
     } catch (err) {
       this._failed(locationId, null, err, text).catch(() => {});
@@ -160,7 +169,7 @@ class WorkflowsService {
       phone = c?.phone || '';
     }
     if (!phone) return { onWhatsApp: 'no', phone: '' };
-    const session = await this.messaging.pickSession(locationId);
+    const session = await this.messaging.pickSession(locationId, { preferredSessionId: numberRef(data) });
     const hit = await this.manager.lookupNumber(session._id, phone);
     return { onWhatsApp: hit.exists ? 'yes' : 'no', phone };
   }

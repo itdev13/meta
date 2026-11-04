@@ -4,7 +4,7 @@
   "description": "WhatsApp (QR / linked-device) conversation provider for GHL — agency-managed, multi-number, subscription billing",
   "main": "src/main.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
     "start": "node src/main.js",
@@ -19,10 +19,12 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
+    "https-proxy-agent": "7.0.6",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
     "pino": "^9.6.0",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "socks-proxy-agent": "8.0.5"
   },
   "devDependencies": {
     "eslint": "^9.18.0"

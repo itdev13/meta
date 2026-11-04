@@ -1,10 +1,14 @@
+const axios = require('axios');
 const ContactMapping = require('../schemas/contact-mapping.schema');
-const { jidToPhone, normalizeJid, isPnJid, isLidJid } = require('./jid');
+const { jidToPhone, normalizeJid, isPnJid, isLidJid, digits } = require('./jid');
 
 // feature: groups — group metadata cache (per number + group jid).
 const GROUP_META_TTL_MS = 60 * 60 * 1000;
 const GROUP_META_MAX = 5000;
 const GROUP_PREFIX = '👥 ';
+// feature: groups — per-group enable flag cache (locationId|groupJid → { value, at }).
+const GROUP_FLAG_TTL_MS = 15 * 1000;
+const GROUP_FLAG_MAX = 5000;
 
 function groupDisplayName(subject) {
   return `${GROUP_PREFIX}${String(subject || 'WhatsApp group').trim()}`.slice(0, 100);
@@ -38,6 +42,7 @@ class ContactService {
     this._groupMeta = new Map(); // `${sessionId}|${groupJid}` → { meta, at }
     this._groupMetaInflight = new Map();
     this._groupInflight = new Map(); // `${locationId}|${groupJid}` → Promise (single-flight create)
+    this._groupFlags = new Map(); // `${locationId}|${groupJid}` → { value: true|false|null, at }
   }
 
   async findByIdentity(locationId, { pnJid, lidJid }) {
@@ -88,6 +93,76 @@ class ContactService {
       mapping = await this.findByIdentity(locationId, { pnJid, lidJid }); // lost a race — use the winner
     }
     return { mapping, created: true };
+  }
+
+  /**
+   * feature: inbound controls (doNotCreateContacts). Like resolveInbound but NEVER creates a GHL
+   * contact: returns the existing mapping as-is, or links an existing GHL contact that matches
+   * the sender's phone (creating only the local mapping). → { mapping, created:false } | null.
+   * Callers then run resolveInbound as usual (it finds the mapping and refreshes it).
+   * Throws only on DB errors; a failed GHL lookup counts as "not found".
+   */
+  async findExisting({ locationId, sessionId, pnJid, lidJid, pushName }) {
+    const existing = await this.findByIdentity(locationId, { pnJid, lidJid });
+    if (existing) return { mapping: existing, created: false };
+    const phone = jidToPhone(pnJid);
+    if (!phone) return null; // LID-only sender: nothing to search GHL by
+    const contactId = await this.findGhlContactIdByPhone(locationId, phone);
+    if (!contactId) return null;
+    let mapping;
+    try {
+      mapping = await ContactMapping.create({
+        locationId,
+        ghlContactId: contactId,
+        waJid: pnJid || null,
+        lidJid: lidJid || null,
+        phone,
+        pushName: pushName || '',
+        firstSessionId: sessionId,
+        lastSessionId: sessionId,
+        lastInboundAt: new Date(),
+      });
+    } catch (err) {
+      if (err.code !== 11000) throw err;
+      mapping = await this.findByIdentity(locationId, { pnJid, lidJid }); // lost a race — use the winner
+      if (!mapping) return null;
+    }
+    return { mapping, created: false };
+  }
+
+  /**
+   * GHL contact id for an E.164 phone, WITHOUT upserting. Tries the duplicate-search endpoint
+   * (same matching rules GHL's upsert uses), then the advanced search filtered on phone.
+   * → contactId | null. Never throws.
+   */
+  async findGhlContactIdByPhone(locationId, phone) {
+    const want = digits(phone);
+    if (!want) return null;
+    const api = this.ghl;
+    try {
+      const res = await api._apiRequest(locationId, (t) =>
+        axios.get(`${api.apiBase}/contacts/search/duplicate`, { params: { locationId, number: `+${want}` }, headers: api._headers(t, false), timeout: 10_000 }),
+      );
+      const c = res?.data?.contact;
+      if (c?.id) return c.id;
+      if (res && res.status === 200) return null; // definitive "no duplicate"
+    } catch {
+      /* fall through to advanced search */
+    }
+    try {
+      const res = await api._apiRequest(locationId, (t) =>
+        axios.post(
+          `${api.apiBase}/contacts/search`,
+          { locationId, pageLimit: 5, filters: [{ field: 'phone', operator: 'eq', value: `+${want}` }] },
+          { headers: api._headers(t), timeout: 10_000 },
+        ),
+      );
+      const hit = (res?.data?.contacts || []).find((c) => digits(c.phone) === want) || null;
+      return hit?.id || null;
+    } catch (err) {
+      console.warn(`[Contacts] phone lookup ${locationId} failed: ${err.message}`);
+      return null;
+    }
   }
 
   async _createGhlContact(locationId, { phone, pushName, pnJid, lidJid, linkedNumber }) {
@@ -163,8 +238,49 @@ class ContactService {
     return hit && Date.now() - hit.at < GROUP_META_TTL_MS ? hit.meta : null;
   }
 
+  /** The group's mapping WITH a GHL contact (placeholders that only carry groupEnabled are ignored). */
   findGroup(locationId, groupJid) {
-    return ContactMapping.findOne({ locationId, waJid: groupJid, isGroup: true });
+    return ContactMapping.findOne({ locationId, waJid: groupJid, isGroup: true, ghlContactId: { $type: 'string' } });
+  }
+
+  /** Per-group flag: true | false | null (null = follow the number's groupMode). Cached ~15s. */
+  async groupFlag(locationId, groupJid) {
+    const key = `${locationId}|${groupJid}`;
+    const hit = this._groupFlags.get(key);
+    if (hit && Date.now() - hit.at < GROUP_FLAG_TTL_MS) return hit.value;
+    const row = await ContactMapping.findOne({ locationId, waJid: groupJid, isGroup: true }).select('groupEnabled').lean();
+    const value = typeof row?.groupEnabled === 'boolean' ? row.groupEnabled : null;
+    this._cacheGroupFlag(key, value);
+    return value;
+  }
+
+  _cacheGroupFlag(key, value) {
+    this._groupFlags.delete(key);
+    this._groupFlags.set(key, { value, at: Date.now() });
+    if (this._groupFlags.size > GROUP_FLAG_MAX) this._groupFlags.delete(this._groupFlags.keys().next().value);
+  }
+
+  /**
+   * Set the per-group flag. Updates the group's mapping, or upserts a contact-less placeholder
+   * (ghlContactId null) so toggling never creates a CRM contact; resolveGroup fills the contact in
+   * on the first synced message (or on /groups/link). → true | false.
+   */
+  async setGroupFlag(locationId, groupJid, enabled, { sessionId = '', subject = '' } = {}) {
+    const value = !!enabled;
+    const update = {
+      $set: { groupEnabled: value, isGroup: true },
+      $setOnInsert: { ghlContactId: null, groupSubject: String(subject || '').trim(), pushName: String(subject || '').trim(), firstSessionId: sessionId, lastSessionId: sessionId },
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await ContactMapping.updateOne({ locationId, waJid: groupJid }, update, { upsert: true });
+        break;
+      } catch (err) {
+        if (err.code !== 11000 || attempt) throw err; // concurrent upsert — the retry matches the winner
+      }
+    }
+    this._cacheGroupFlag(`${locationId}|${groupJid}`, value);
+    return value;
   }
 
   /**
@@ -203,9 +319,10 @@ class ContactService {
       return { mapping: Object.assign(mapping, $set), created: false };
     }
 
-    // A pre-existing 1:1-style mapping on the group jid (shouldn't happen) is upgraded in place.
+    // A pre-existing 1:1-style mapping on the group jid (shouldn't happen) is upgraded in place;
+    // a contact-less placeholder (per-group flag set before first sync) gets its contact below.
     const stray = await ContactMapping.findOne({ locationId, waJid: groupJid });
-    if (stray) {
+    if (stray && stray.ghlContactId) {
       await ContactMapping.updateOne({ _id: stray._id }, { $set: { isGroup: true, groupSubject: cleanSubject, lastSessionId: sessionId } });
       return { mapping: Object.assign(stray, { isGroup: true, groupSubject: cleanSubject, lastSessionId: sessionId }), created: false };
     }
@@ -221,6 +338,25 @@ class ContactService {
       tags: ['whatsapp-group'],
       ...(customFields.length ? { customFields } : {}),
     });
+    if (stray) {
+      const $set = {
+        ghlContactId: contact.id,
+        isGroup: true,
+        groupSubject: cleanSubject || stray.groupSubject || '',
+        pushName: cleanSubject || stray.pushName || '',
+        lastSessionId: sessionId,
+        ...(stray.firstSessionId ? {} : { firstSessionId: sessionId }),
+        ...(inbound ? { lastInboundAt: new Date() } : {}),
+      };
+      const r = await ContactMapping.updateOne({ _id: stray._id, ghlContactId: null }, { $set });
+      if (!r.modifiedCount) {
+        // Another instance filled it first — keep theirs (our fresh contact is an orphan; rare).
+        console.warn(`[Groups] placeholder ${groupJid} filled concurrently; orphan contact ${contact.id}`);
+        mapping = await this.findGroup(locationId, groupJid);
+        return { mapping, created: false };
+      }
+      return { mapping: Object.assign(stray, $set), created: true };
+    }
     try {
       mapping = await ContactMapping.create({
         locationId,

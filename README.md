@@ -20,7 +20,8 @@ whatsapp/
 | CRM/workflow → WhatsApp: routes through the number the contact last used | `backend/src/whatsapp/messaging.service.js` |
 | Lifecycle and billing webhooks: install, uninstall, plan change, payment | `backend/src/webhooks/webhooks.router.js` |
 | Live QR, pairing code and status stream (SSE) | `backend/src/sessions/live.router.js` |
-| Workflows: 6 triggers and 4 actions | `backend/src/workflows/` |
+| Workflows: 10 triggers and 8 actions | `backend/src/workflows/` and feature modules |
+| Feature modules: consent, auto-replies, groups, analytics, number routing, share-to-connect links, proxy per number | `backend/src/features/<name>/` |
 
 ### Agency vs sub-account
 

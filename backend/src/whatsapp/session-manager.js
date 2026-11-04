@@ -7,6 +7,7 @@ const WaSession = require('../schemas/wa-session.schema');
 const { useMongoAuthState, clearAuthState } = require('./mongo-auth-state');
 const { normalizeJid, jidToPhone, isIgnorableJid, digits } = require('./jid');
 const { formatError } = require('../utils/format-error');
+const proxyPool = require('../features/proxy/proxy-pool');
 
 const makeWASocket = baileys.default || baileys.makeWASocket;
 const { DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, Browsers } = baileys;
@@ -16,6 +17,13 @@ const HEARTBEAT_MS = 30 * 1000;
 const MAX_BACKOFF_MS = 5 * 60 * 1000;
 const SENT_CACHE_SIZE = 300;
 const LIVE = new Set(['qr', 'pairing', 'connecting', 'connected', 'disconnected']);
+// Watchdog: restart registered sessions stuck connecting (or disconnected with no retry pending).
+const WATCHDOG_MS = 60 * 1000;
+const STUCK_CONNECTING_MS = 2 * 60 * 1000;
+// Crash containment: more than ERROR_LIMIT handler errors inside ERROR_WINDOW_MS → pause the session.
+const ERROR_LIMIT = 20;
+const ERROR_WINDOW_MS = 5 * 60 * 1000;
+const PAUSED_FOR_ERRORS = 'Paused after repeated errors; reconnect to retry';
 
 /**
  * Pool of live WhatsApp (Baileys) sockets, one per linked number, keyed by session _id.
@@ -42,6 +50,13 @@ class SessionManager extends EventEmitter {
     this.maxQr = Number(process.env.WA_MAX_QR_PER_ATTEMPT) || 6;
     this._version = null;
     this._heartbeat = setInterval(() => this._renewLeases().catch(() => {}), HEARTBEAT_MS);
+    // sessionId → timestamps of recent handler errors (survives watchdog restarts on purpose).
+    this._errorLog = new Map();
+    this._watchdogBusy = false;
+    this._watchdog = setInterval(() => {
+      this._runWatchdog().catch((err) => console.error(`[WA] watchdog error | ${formatError(err)}`));
+    }, WATCHDOG_MS);
+    if (this._watchdog.unref) this._watchdog.unref();
   }
 
   // ── Public API ───────────────────────────────────────────────
@@ -73,6 +88,10 @@ class SessionManager extends EventEmitter {
     const session = await WaSession.findById(id).lean();
     if (!session) throw Object.assign(new Error('Session not found'), { statusCode: 404 });
 
+    // A user-initiated (re)connect gets a clean error budget; watchdog restarts keep the history
+    // so a session that keeps crashing is still paused instead of hot-looping.
+    if (!opts.fromWatchdog) this._errorLog.delete(id);
+
     const runtime = {
       id,
       locationId: session.locationId,
@@ -80,6 +99,8 @@ class SessionManager extends EventEmitter {
       gen: (existing?.gen || 0) + 1,
       sock: null,
       status: 'connecting',
+      statusAt: Date.now(),
+      proxy: null, // { country, masked } of the proxy used by the current socket, or null (direct)
       qr: null,
       pairingCode: null,
       pairingPhone: opts.pairingPhone ? digits(opts.pairingPhone) : null,
@@ -91,7 +112,13 @@ class SessionManager extends EventEmitter {
       sentCache: new Map(),
     };
     this.runtimes.set(id, runtime);
-    await this._connect(runtime);
+    try {
+      await this._connect(runtime);
+    } catch (err) {
+      // Leave the runtime in place (status 'connecting', no socket): the watchdog retries it.
+      this._recordError(runtime, 'connect', err);
+      throw err;
+    }
     return this.snapshot(id);
   }
 
@@ -145,7 +172,24 @@ class SessionManager extends EventEmitter {
   snapshot(sessionId) {
     const rt = this.runtimes.get(String(sessionId));
     if (!rt) return null;
-    return { sessionId: rt.id, locationId: rt.locationId, status: rt.status, qr: rt.qr, pairingCode: rt.pairingCode };
+    return {
+      sessionId: rt.id,
+      locationId: rt.locationId,
+      status: rt.status,
+      qr: rt.qr,
+      pairingCode: rt.pairingCode,
+      retries: rt.retries || 0,
+      proxyCountry: rt.proxy?.country || null,
+    };
+  }
+
+  /**
+   * http(s).Agent for this session's proxy (or undefined when direct). Baileys downloads media
+   * with axios, so pass it to downloadMediaMessage as `{ options: { httpsAgent: agent } }` to
+   * make downloads leave from the same IP as the socket. (Uploads already use it via fetchAgent.)
+   */
+  getProxyAgent(sessionId) {
+    return this.runtimes.get(String(sessionId))?.proxyAgent || undefined;
   }
 
   async sendRaw(sessionId, jid, content) {
@@ -208,6 +252,7 @@ class SessionManager extends EventEmitter {
   /** Graceful shutdown: close sockets, keep links, release leases so another instance can take over. */
   async shutdown() {
     clearInterval(this._heartbeat);
+    clearInterval(this._watchdog);
     const ids = [...this.runtimes.keys()];
     for (const id of ids) await this._teardown(id);
     if (ids.length) {
@@ -263,9 +308,14 @@ class SessionManager extends EventEmitter {
     }
     const { state, saveCreds } = await useMongoAuthState(rt.id, this.crypto);
     const version = await this._version_();
+    // Re-read every connect so a changed proxyCountry applies on the next (re)connect.
+    const proxyAgent = await this._resolveProxy(rt);
+    if (rt.gen !== gen || rt.stopping) return; // torn down / superseded while we were awaiting
 
     const sock = makeWASocket({
       ...(version ? { version } : {}),
+      // Proxy (if configured): `agent` for the WebSocket, `fetchAgent` for media uploads.
+      ...(proxyAgent ? { agent: proxyAgent, fetchAgent: proxyAgent } : {}),
       logger: this.logger,
       auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, this.logger) },
       browser: Browsers.macOS(process.env.WA_BROWSER_NAME || 'Chrome'),
@@ -282,26 +332,148 @@ class SessionManager extends EventEmitter {
     });
     rt.sock = sock;
 
-    sock.ev.on('creds.update', () => {
-      saveCreds().catch((err) => console.error(`[WA] saveCreds ${rt.id} failed: ${err.message}`));
+    // Every handler is contained: a throw (sync or async) in one session is logged, counted
+    // against that session's error budget, and never reaches Baileys or other sessions.
+    const on = (event, fn) => {
+      sock.ev.on(event, (payload) => {
+        try {
+          const out = fn(payload);
+          if (out && typeof out.catch === 'function') out.catch((err) => this._recordError(rt, event, err));
+        } catch (err) {
+          this._recordError(rt, event, err);
+        }
+      });
+    };
+
+    on('creds.update', () => saveCreds().catch((err) => console.error(`[WA] saveCreds ${rt.id} failed: ${err.message}`)));
+
+    on('connection.update', (update) => {
+      if (rt.gen !== gen || rt.stopping) return undefined;
+      return this._onConnectionUpdate(rt, sock, state, update);
     });
 
-    sock.ev.on('connection.update', (update) => {
-      if (rt.gen !== gen || rt.stopping) return;
-      this._onConnectionUpdate(rt, sock, state, update).catch((err) =>
-        console.error(`[WA] connection.update ${rt.id} handler error | ${formatError(err)}`),
-      );
-    });
-
-    sock.ev.on('messages.upsert', (payload) => {
+    on('messages.upsert', (payload) => {
       if (rt.gen !== gen) return;
-      this.emit('messages.upsert', { session: this._sessionRef(rt), sock, ...payload });
+      this._safeEmit(rt, 'messages.upsert', { session: this._sessionRef(rt), sock, ...payload });
     });
 
-    sock.ev.on('messages.update', (updates) => {
+    on('messages.update', (updates) => {
       if (rt.gen !== gen) return;
-      this.emit('messages.update', { session: this._sessionRef(rt), updates });
+      this._safeEmit(rt, 'messages.update', { session: this._sessionRef(rt), updates });
     });
+  }
+
+  /** Pick this session's proxy (if any) → agent or null. Logs only masked URLs. */
+  async _resolveProxy(rt) {
+    rt.proxy = null;
+    rt.proxyAgent = null;
+    let country = '';
+    try {
+      const doc = await WaSession.findById(rt.id).select('settings.proxyCountry').lean();
+      country = doc?.settings?.proxyCountry || '';
+    } catch (err) {
+      console.warn(`[WA] ${rt.id} could not read proxy setting (connecting directly): ${err.message}`);
+      return null;
+    }
+    const picked = proxyPool.pickProxy(rt.id, country);
+    if (!picked) return null;
+    if (picked.missing) {
+      console.warn(`[WA] ${rt.id} proxy country ${picked.country} has no proxies in PROXY_POOL_JSON — connecting directly`);
+      return null;
+    }
+    try {
+      const agent = proxyPool.createAgent(picked.url);
+      rt.proxy = { country: picked.country, masked: picked.masked };
+      rt.proxyAgent = agent;
+      console.log(`[WA] ${rt.id} connecting via ${picked.country} proxy ${picked.masked}`);
+      return agent;
+    } catch (err) {
+      console.warn(`[WA] ${rt.id} proxy ${picked.masked} unusable (connecting directly): ${err.message}`);
+      return null;
+    }
+  }
+
+  /** Emit to consumers without letting a listener's throw escape into Baileys. */
+  _safeEmit(rt, event, payload) {
+    try {
+      this.emit(event, payload);
+    } catch (err) {
+      this._recordError(rt, `${event} listener`, err);
+    }
+  }
+
+  /** Log + count a contained error; too many in the window pauses the session. */
+  _recordError(rt, where, err) {
+    console.error(`[WA] ${rt.id} ${where} handler error | ${formatError(err)}`);
+    const now = Date.now();
+    const log = (this._errorLog.get(rt.id) || []).filter((t) => now - t < ERROR_WINDOW_MS);
+    log.push(now);
+    this._errorLog.set(rt.id, log);
+    // Only pause the runtime that is actually live — a late error from a superseded runtime
+    // still counts, but must not tear down its replacement directly.
+    if (log.length > ERROR_LIMIT && !rt.pausingForErrors && this.runtimes.get(rt.id) === rt) {
+      rt.pausingForErrors = true;
+      this._pauseForErrors(rt).catch((e) => console.error(`[WA] ${rt.id} pause-after-errors failed | ${formatError(e)}`));
+    }
+  }
+
+  async _pauseForErrors(rt) {
+    console.warn(`[WA] ${rt.id} paused: >${ERROR_LIMIT} errors in ${ERROR_WINDOW_MS / 60000} min`);
+    await this._teardown(rt.id, { release: true });
+    this._errorLog.delete(rt.id);
+    await WaSession.updateOne(
+      { _id: rt.id },
+      { $set: { status: 'disconnected', lastError: PAUSED_FOR_ERRORS, ownerId: null, leaseUntil: null } },
+    );
+    this._emitStatus(rt.id, await WaSession.findById(rt.id).lean());
+  }
+
+  /**
+   * Every 60s: restart (teardown + start) registered sessions that are stuck in 'connecting' for
+   * over 2 min, or 'disconnected' with no reconnect timer pending. One number at a time; never
+   * touches a session whose lease is held by another live instance.
+   */
+  async _runWatchdog() {
+    if (this._watchdogBusy) return;
+    this._watchdogBusy = true;
+    try {
+      const now = Date.now();
+      const stuck = [];
+      for (const rt of this.runtimes.values()) {
+        if (rt.stopping || rt.pausingForErrors) continue;
+        if (rt.status === 'connecting' && now - (rt.statusAt || now) > STUCK_CONNECTING_MS) stuck.push(rt);
+        else if (rt.status === 'disconnected' && !rt.reconnectTimer) stuck.push(rt);
+      }
+      if (!stuck.length) return;
+      const docs = await WaSession.find({ _id: { $in: stuck.map((r) => r.id) } })
+        .select('_id registered isActive status ownerId leaseUntil')
+        .lean();
+      const byId = new Map(docs.map((d) => [String(d._id), d]));
+
+      for (const rt of stuck) {
+        // Re-check: state may have moved on while we awaited.
+        if (this.runtimes.get(rt.id) !== rt || rt.stopping) continue;
+        const doc = byId.get(rt.id);
+        if (!doc || !doc.registered || !doc.isActive || doc.status === 'paused') continue;
+        const leasedElsewhere = doc.ownerId && doc.ownerId !== this.instanceId && doc.leaseUntil && new Date(doc.leaseUntil).getTime() > Date.now();
+        if (leasedElsewhere) {
+          // Another instance owns it now — drop our dead runtime, don't fight for the lease.
+          console.warn(`[WA] watchdog: ${rt.id} is leased by ${doc.ownerId} — dropping local runtime`);
+          await this._teardown(rt.id);
+          continue;
+        }
+        const why = rt.status === 'connecting' ? `stuck connecting ${Math.round((Date.now() - rt.statusAt) / 1000)}s` : 'disconnected with no retry pending';
+        console.warn(`[WA] watchdog: restarting ${rt.id} (${why})`);
+        try {
+          await this._teardown(rt.id);
+          await this.start(rt.id, { fromWatchdog: true });
+        } catch (err) {
+          console.warn(`[WA] watchdog: restart ${rt.id} failed: ${err.message}`);
+        }
+      }
+    } finally {
+      this._watchdogBusy = false;
+    }
   }
 
   _sessionRef(rt) {
@@ -393,13 +565,22 @@ class SessionManager extends EventEmitter {
 
       rt.retries += 1;
       const delay = Math.min(MAX_BACKOFF_MS, 2000 * 2 ** Math.min(rt.retries - 1, 8)) + Math.floor(Math.random() * 1000);
-      await this._setStatus(rt, 'disconnected', { lastError: `Connection lost (${code || 'network'}) — reconnecting.` });
-      console.warn(`[WA] ${rt.id} closed (${code}) — reconnect #${rt.retries} in ${Math.round(delay / 1000)}s`);
+      // Schedule before the (async) status write so the watchdog never sees 'disconnected' without a timer.
+      clearTimeout(rt.reconnectTimer);
       rt.reconnectTimer = setTimeout(() => {
-        if (rt.stopping || this.runtimes.get(rt.id) !== rt) return;
-        rt.status = 'connecting';
-        this._connect(rt).catch((err) => console.error(`[WA] reconnect ${rt.id} failed | ${formatError(err)}`));
+        rt.reconnectTimer = null;
+        try {
+          if (rt.stopping || this.runtimes.get(rt.id) !== rt) return;
+          rt.status = 'connecting';
+          rt.statusAt = Date.now();
+          // On failure the runtime stays 'connecting' with no socket → the watchdog restarts it.
+          this._connect(rt).catch((err) => this._recordError(rt, 'reconnect', err));
+        } catch (err) {
+          this._recordError(rt, 'reconnect', err);
+        }
       }, delay);
+      console.warn(`[WA] ${rt.id} closed (${code}) — reconnect #${rt.retries} in ${Math.round(delay / 1000)}s`);
+      await this._setStatus(rt, 'disconnected', { lastError: `Connection lost (${code || 'network'}) — reconnecting.` });
     }
   }
 
@@ -432,6 +613,7 @@ class SessionManager extends EventEmitter {
     if (!rt) return;
     rt.stopping = true;
     clearTimeout(rt.reconnectTimer);
+    rt.reconnectTimer = null;
     if (rt.sock) {
       try {
         rt.sock.ev.removeAllListeners();
@@ -446,6 +628,7 @@ class SessionManager extends EventEmitter {
   }
 
   async _setStatus(rt, status, patch = {}) {
+    if (rt.status !== status) rt.statusAt = Date.now();
     rt.status = status;
     const doc = await WaSession.findOneAndUpdate({ _id: rt.id }, { $set: { status, ...patch } }, { new: true }).lean();
     this._emitStatus(rt.id, doc);
@@ -454,7 +637,7 @@ class SessionManager extends EventEmitter {
   _emitStatus(id, doc) {
     if (!doc) return;
     const rt = this.runtimes.get(String(id));
-    this.emit('status', {
+    const payload = {
       sessionId: String(doc._id),
       locationId: doc.locationId,
       companyId: doc.companyId,
@@ -465,7 +648,15 @@ class SessionManager extends EventEmitter {
       phoneNumber: doc.phoneNumber || null,
       waName: doc.waName || '',
       lastError: doc.lastError || '',
-    });
+      // Reconnect attempt number while backing off (0 when connected / not retrying).
+      reconnectAttempt: rt?.retries || 0,
+    };
+    try {
+      this.emit('status', payload);
+    } catch (err) {
+      // A broken status listener (SSE, workflows) must not break the session's state machine.
+      console.error(`[WA] ${id} status listener error | ${formatError(err)}`);
+    }
   }
 }
 

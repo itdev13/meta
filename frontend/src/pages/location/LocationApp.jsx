@@ -5,6 +5,7 @@ import { plural } from '../../lib/format';
 import { Banner, Button, Empty, Field, Pill, Skeleton, useAction } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import NumbersPanel from '../../components/NumbersPanel';
+import NumberSelectionPanel from '../../components/NumberSelectionPanel';
 import ActivityFeed from '../../components/ActivityFeed';
 import ConnectNumberModal from '../../components/ConnectNumberModal';
 import AutomationsPanel from './AutomationsPanel';
@@ -117,6 +118,11 @@ export default function LocationApp({ user }) {
                     setFeedKey((k) => k + 1);
                   }}
                 />
+                {numbers.length >= 2 && (
+                  <div className="nm-selection-mount">
+                    <NumberSelectionPanel locationId={user.locationId} numbers={numbers} />
+                  </div>
+                )}
               </>
             )}
           </>

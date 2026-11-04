@@ -4,6 +4,10 @@ import { Button, Empty, Spinner, ToastProvider } from './components/ui';
 import { WaGlyph } from './components/icons';
 import AgencyApp from './pages/agency/AgencyApp';
 import LocationApp from './pages/location/LocationApp';
+import ConnectPage from './pages/public/ConnectPage';
+
+// Public share link (/connect/:token): no CRM login, so it must render before the SSO boot.
+const CONNECT_MATCH = typeof window !== 'undefined' ? /^\/connect\/([A-Za-z0-9_-]+)\/?$/.exec(window.location.pathname) : null;
 
 /**
  * One build, two experiences: opened from the agency menu → agency console; opened inside a
@@ -11,6 +15,17 @@ import LocationApp from './pages/location/LocationApp';
  * context, exchanged for a session token at /auth/session.
  */
 export default function App() {
+  if (CONNECT_MATCH) {
+    return (
+      <ToastProvider>
+        <ConnectPage token={CONNECT_MATCH[1]} />
+      </ToastProvider>
+    );
+  }
+  return <CrmApp />;
+}
+
+function CrmApp() {
   const [state, setState] = useState({ phase: 'loading' });
 
   const boot = async () => {

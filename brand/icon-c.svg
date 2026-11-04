@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1FB25C"/><stop offset="1" stop-color="#0A6B34"/></linearGradient></defs>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#g)"/>
+  <rect x="17" y="17" width="478" height="478" rx="115" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width="2"/>
+  <!-- central WhatsApp-style bubble: ring + handset -->
+  <path d="M246 92a150 150 0 1 1-75.6 279.6L102 394l22.6-65.6A150 150 0 0 1 246 92z" fill="#fff"/>
+  <circle cx="246" cy="242" r="116" fill="#25D366"/>
+  <circle cx="246" cy="242" r="96" fill="#fff"/>
+  <g transform="translate(184 180) scale(5.15)"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" fill="#25D366"/></g>
+  <!-- small Greenline badge (bottom-right) -->
+  <circle cx="398" cy="398" r="66" fill="#0A6B34" stroke="#fff" stroke-width="10"/>
+  <path d="M368 368 H428 Q440 368 440 380 V410 Q440 422 428 422 H388 L370 436 V422 Q358 422 358 410 V380 Q358 368 368 368 Z" fill="#fff"/>
+  <rect x="372" y="383" width="52" height="9" rx="4.5" fill="#10883F"/>
+  <rect x="372" y="399" width="34" height="9" rx="4.5" fill="#10883F" fill-opacity=".55"/>
+</svg>
