@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const FIELD_FOLDER = 'WhatsApp Connector';
+const FIELD_FOLDER = 'WhatsApp';
 const WANT_FIELDS = [
   { key: 'whatsapp_id', name: 'WhatsApp ID' },
   { key: 'whatsapp_number', name: 'WhatsApp Number' },
@@ -130,7 +130,7 @@ class GhlService {
     return ids;
   }
 
-  /** Ensure the "WhatsApp Connector" folder + fields exist. Idempotent, never throws. */
+  /** Ensure the "WhatsApp" folder + fields exist. Idempotent, never throws. */
   async ensureCustomFields(locationId) {
     const idMap = {};
     try {

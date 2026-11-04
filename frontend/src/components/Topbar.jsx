@@ -1,6 +1,6 @@
 import { Icon, WaGlyph } from './icons';
 
-export const APP_NAME = 'WhatsApp Connector';
+export const APP_NAME = 'Greenline';
 
 export default function Topbar({ crumb, tabs, tab, onTab, right }) {
   return (
