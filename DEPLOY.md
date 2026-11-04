@@ -61,6 +61,14 @@ users.readonly  oauth.readonly  oauth.write  marketplace-installer-details.reado
 - **Delivery URL:** `https://whatsappapi.vaultsuite.store/webhooks/ghl-outbound`
 - Save, then copy the **Conversation Provider ID**. It becomes `GHL_CONVERSATION_PROVIDER_ID`.
 
+**Second conversation provider: WhatsApp Voice** (Modules → Conversation Providers → Add):
+- **Type:** `Call`
+- **Name:** `WhatsApp Voice`
+- **Delivery URL:** `https://whatsappapi.vaultsuite.store/webhooks/ghl-call`
+- Copy its ID into `GHL_CALL_PROVIDER_ID`.
+
+WhatsApp calls are logged under this provider: answered on the phone, declined, or missed. Linked devices can't carry call audio, so a call started from the CRM dialer is marked failed, with a note to call from the phone instead.
+
 **Custom pages** (Modules → Custom Pages). Create **two**, both pointing at the UI:
 - **Agency-level page:** URL `https://whatsapp.vaultsuite.store`, shown in the agency left menu
 - **Sub-account page:** URL `https://whatsapp.vaultsuite.store`, shown in each sub-account's left menu
@@ -85,6 +93,7 @@ The app reads the logged-in user's context and shows either the agency console o
 | `whatsapp_number_disconnected` | WhatsApp number disconnected | `sessionId, reason, timestamp` |
 | `whatsapp_contact_opted_out` | Contact unsubscribed | `contactId, phone, contactName, status, previousStatus, method, keyword, messageText, linkedNumber, timestamp` |
 | `whatsapp_contact_opted_in` | Contact re-subscribed | same as opted out |
+| `whatsapp_call_received` | WhatsApp call received | `contactId, phone, callStatus (answered/declined/missed), isVideo, linkedNumber, timestamp` |
 | `whatsapp_group_message_received` | WhatsApp group message | `contactId, groupJid, groupName, senderName, senderPhone, messageText, messageType, linkedNumber, attachmentUrl, timestamp` |
 
 **Workflow actions** (Modules → Workflows → Actions):
@@ -150,7 +159,8 @@ Start from `backend/.env.example`. Required values:
 | `GHL_REDIRECT_URI` | `https://whatsappapi.vaultsuite.store/auth/callback` |
 | `GHL_SSO_KEY` | the Shared Secret from step 1 |
 | `GHL_APP_ID` | your app ID (it's in the marketplace app URL) |
-| `GHL_CONVERSATION_PROVIDER_ID` | from step 1 |
+| `GHL_CONVERSATION_PROVIDER_ID` | from step 1 (the **WhatsApp**, SMS-type provider) |
+| `GHL_CALL_PROVIDER_ID` | from step 1 (the **WhatsApp Voice**, Call-type provider). If empty, calls are logged as a text line instead. |
 | `GHL_API_BASE` | `https://services.leadconnectorhq.com` |
 | `GHL_API_VERSION` | `2021-07-28` |
 | `GHL_MESSAGE_TYPE` | `Custom`, or `SMS` if you registered the provider as SMS |
@@ -162,6 +172,7 @@ Start from `backend/.env.example`. Required values:
 | `GHL_DEFAULT_APP_DOMAIN` | `app.gohighlevel.com` |
 | `GHL_APP_VERSION_ID` | the app's current version ID (used for "Choose plan" links) |
 | `WA_DEFAULT_MIN_DELAY_MS` / `WA_DEFAULT_DAILY_LIMIT` | `1500` / `1000` (safe defaults) |
+| `WA_RESTORE_CONCURRENCY` / `WA_SEND_WAIT_MS` | `5` / `20000`. After a restart, numbers reconnect at most 5 at a time, most recently active first, and replies for a number that is still reconnecting wait up to 20 s instead of failing. |
 | `BAILEYS_LOG_LEVEL` | `silent`, or `warn` while debugging |
 | `ADMIN_API_KEY` | `openssl rand -hex 24` (for `/admin/stats`) |
 | `PROXY_POOL_JSON` | Optional. Proxies per country, for example `{"GB":["http://user:pass@gb1.example:8000"],"IN":["socks5://u:p@in1.example:1080"]}`. Each number can pick a country in its settings. Leave it empty for direct connections. |
@@ -176,7 +187,7 @@ chmod 600 /opt/whatsapp-connector/backend/.env
 cd /opt/whatsapp-connector
 pm2 start deploy/ecosystem.config.cjs
 pm2 save && pm2 startup          # run the command it prints, so pm2 restarts on reboot
-pm2 logs whatsapp-connector-api --lines 30
+pm2 logs whatsapp --lines 30
 ```
 
 You should see:
@@ -260,7 +271,7 @@ Use a test agency and test sub-account, and a spare phone number. Don't use a nu
    - **Expect:** an instant reply.
 9. **Workflow.** Create a workflow with the trigger "WhatsApp message received" and the action "Send WhatsApp message".
    - **Expect:** it fires end to end.
-10. **Restart.** Run `pm2 restart whatsapp-connector-api`.
+10. **Restart.** Run `pm2 restart whatsapp`.
     - **Expect:** the number reconnects by itself within about 10 seconds, with no new scan.
 11. **Unlink.** Number card → Unlink.
     - **Expect:** the device disappears from the phone's Linked devices list.
@@ -269,13 +280,13 @@ Use a test agency and test sub-account, and a spare phone number. Don't use a nu
 13. **Routing.** With two numbers linked, send `{WA#2} hello` from Conversations.
     - **Expect:** it goes out from WhatsApp #2, and the `{WA#2}` token is removed from the message.
 
-If any step fails, check `pm2 logs whatsapp-connector-api`. Every GHL call that fails is logged with its status code and response body.
+If any step fails, check `pm2 logs whatsapp`. Every GHL call that fails is logged with its status code and response body.
 
 ---
 
 ## 5. Hardening before going public
 
-- [ ] **Turn webhook signature checks on.** After a day of `monitor` mode with no `signature not verified` lines in the logs, set `GHL_WEBHOOK_VERIFY_MODE=enforce` and run `pm2 restart whatsapp-connector-api`.
+- [ ] **Turn webhook signature checks on.** After a day of `monitor` mode with no `signature not verified` lines in the logs, set `GHL_WEBHOOK_VERIFY_MODE=enforce` and run `pm2 restart whatsapp`.
 - [ ] **Store `ENCRYPTION_KEY` in a password manager.** Atlas backups are useless without it.
 - [ ] **Turn on Atlas backups** (continuous or daily).
 - [ ] **Uptime monitor** on `/health`, alerting if it is down for more than 2 minutes.
@@ -290,13 +301,13 @@ If any step fails, check `pm2 logs whatsapp-connector-api`. Every GHL call that 
 ```bash
 cd /opt/whatsapp-connector && git pull        # or rsync again from your Mac
 cd backend && npm ci --omit=dev
-pm2 reload whatsapp-connector-api             # graceful: links are kept, sessions reconnect
+pm2 reload whatsapp             # graceful: links are kept, sessions reconnect
 ```
 The UI redeploys on its own when you push, or run `npx vercel --prod`.
 
 **Rollback:**
 ```bash
-git checkout <previous-tag> && cd backend && npm ci --omit=dev && pm2 reload whatsapp-connector-api
+git checkout <previous-tag> && cd backend && npm ci --omit=dev && pm2 reload whatsapp
 ```
 Data is backward compatible; no migrations are needed.
 

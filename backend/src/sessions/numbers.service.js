@@ -4,7 +4,7 @@ const { clearAuthState } = require('../whatsapp/mongo-auth-state');
 const { digits } = require('../whatsapp/jid');
 
 const TERMINAL = ['logged_out', 'banned', 'replaced', 'qr_expired'];
-const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups', 'doNotCreateContacts', 'disableIncoming'];
+const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups', 'doNotCreateContacts', 'disableIncoming', 'callLogging', 'missedCallReply', 'autoRejectCalls'];
 const AGENCY_SETTINGS = ['minDelayMs', 'dailyLimit'];
 
 function httpError(message, statusCode, code) {
@@ -51,6 +51,10 @@ class NumbersService {
         disableIncoming: !!doc.settings?.disableIncoming,
         blacklist: doc.settings?.blacklist || [],
         proxyCountry: doc.settings?.proxyCountry || '',
+        callLogging: doc.settings?.callLogging !== false,
+        missedCallReply: !!doc.settings?.missedCallReply,
+        missedCallMessage: doc.settings?.missedCallMessage ?? '',
+        autoRejectCalls: !!doc.settings?.autoRejectCalls,
         minDelayMs: doc.settings?.minDelayMs ?? null,
         dailyLimit: doc.settings?.dailyLimit ?? null,
       },
@@ -225,6 +229,7 @@ class NumbersService {
       if (!['all', 'selected'].includes(s.groupMode)) throw httpError('groupMode must be "all" or "selected"', 400);
       $set['settings.groupMode'] = s.groupMode;
     }
+    if ('missedCallMessage' in s) $set['settings.missedCallMessage'] = String(s.missedCallMessage || '').slice(0, 1000);
     if ('proxyCountry' in s) $set['settings.proxyCountry'] = String(s.proxyCountry || '').toUpperCase().slice(0, 2);
     if (patch.isDefault === true) {
       await WaSession.updateMany({ locationId, _id: { $ne: doc._id } }, { $set: { isDefault: false } });

@@ -48,7 +48,12 @@ function createAuthRouter(authService, accessService) {
         error.response?.data?.error === 'invalid_grant' || /authorization code/i.test(error.response?.data?.error_description || '');
       if (reused) return res.send(renderInstallPage({ kind: 'success', already: true }));
       console.error(`[Auth] OAuth callback failed | ${formatError(error)}`);
-      return res.status(500).send(renderInstallPage({ kind: 'error', message: error.message }));
+      // Never show internal errors (DB, stack details) to installers; they're in the server log.
+      const ref = Date.now().toString(36).toUpperCase();
+      console.error(`[Auth] install error ref ${ref}`);
+      const ghlMsg = error.response?.data?.error_description || error.response?.data?.message;
+      const message = ghlMsg ? `The CRM rejected the installation: ${ghlMsg}` : `Something went wrong on our side. Please try again in a minute. (Ref ${ref})`;
+      return res.status(500).send(renderInstallPage({ kind: 'error', message }));
     }
   });
 

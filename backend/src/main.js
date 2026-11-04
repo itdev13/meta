@@ -1,21 +1,10 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-// Timestamp every console line (pm2-friendly). LOG_TZ to change zone, LOG_TIMESTAMPS=false to disable.
-if (process.env.LOG_TIMESTAMPS !== 'false') {
-  const fmt = new Intl.DateTimeFormat('en-GB', {
-    timeZone: process.env.LOG_TZ || 'Asia/Kolkata',
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  });
-  const stamp = () => {
-    const p = Object.fromEntries(fmt.formatToParts(new Date()).map((x) => [x.type, x.value]));
-    return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
-  };
-  for (const level of ['log', 'warn', 'error', 'info']) {
-    const original = console[level].bind(console);
-    console[level] = (...args) => original(`[${stamp()}]`, ...args);
-  }
-}
+// Structured logging (winston, ConvoVault style). Legacy console.* calls are routed through it.
+const logger = require('./utils/logger');
+
+logger.bridgeConsole();
 
 const express = require('express');
 const cors = require('cors');
@@ -78,6 +67,23 @@ async function bootstrap() {
   app.use(cors({ origin: '*', credentials: false, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
   app.use(express.json({ limit: '2mb' }));
 
+  // One line per request: 🟢 GET /api/... → 200 (12ms). Skips load-balancer health checks,
+  // the long-lived live stream, and successful share-page polling (every 2s).
+  app.use((req, res, next) => {
+    const t0 = Date.now();
+    res.on('finish', () => {
+      const code = res.statusCode;
+      // Full path (sub-routers trim req.path), no query string, share tokens masked.
+      const path = (req.originalUrl || req.url).split('?')[0].replace(/^\/public\/connect\/[^/]+/, '/public/connect/:token');
+      if (path === '/health' && code === 200) return;
+      if (path.startsWith('/api/live')) return;
+      if (req.method === 'GET' && path.startsWith('/public/connect/') && code < 400) return;
+      const emoji = code >= 500 ? '🔴' : code >= 400 ? '🟡' : code >= 300 ? '🔵' : '🟢';
+      logger.info(`${emoji} ${req.method} ${path} → ${code} (${Date.now() - t0}ms)`);
+    });
+    next();
+  });
+
   const apiLimiter = rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHeaders: false });
   const webhookLimiter = rateLimit({ windowMs: 60_000, max: 1200, standardHeaders: true, legacyHeaders: false });
 
@@ -102,6 +108,7 @@ async function bootstrap() {
     guards,
     hooks,
     apiLimiter,
+    webhookLimiter,
     workflowAction: (name, fn) => app.post(`/workflows/actions/${name}`, webhookLimiter, ghlSignatureGuard, workflowActionHandler(name, fn)),
     services: {
       crypto,
@@ -130,7 +137,7 @@ async function bootstrap() {
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     const status = err.statusCode || 500;
-    if (status >= 500) console.error(`[HTTP] ${req.method} ${req.originalUrl} | ${formatError(err)}`);
+    if (status >= 500) logger.error('❌ Unhandled request error', { method: req.method, path: req.originalUrl, error: formatError(err), stack: err.stack });
     res.status(status).json({ success: false, error: status >= 500 ? 'Something went wrong — please try again.' : err.message, code: err.code });
   });
 
@@ -138,12 +145,20 @@ async function bootstrap() {
   setInterval(cleanupExpiredMedia, 60 * 60 * 1000);
 
   const port = Number(process.env.PORT) || 3025;
-  const server = app.listen(port, () => console.log(`WhatsApp Connector API on :${port} (${sessionManager.instanceId})`));
+  const server = app.listen(port, () => {
+    logger.info('='.repeat(50));
+    logger.info('🚀 Greenline WhatsApp API started');
+    logger.info('='.repeat(50));
+    logger.info(`📡 Port: ${port}`);
+    logger.info(`🆔 Instance: ${sessionManager.instanceId}`);
+    logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info('='.repeat(50));
+  });
 
-  sessionManager.restoreAll().catch((err) => console.error(`[WA] restore failed | ${formatError(err)}`));
+  sessionManager.restoreAll().catch((err) => logger.error('❌ Session restore failed', { error: formatError(err) }));
 
   const shutdown = async (signal) => {
-    console.log(`${signal} — closing WhatsApp sockets (links are kept)…`);
+    logger.info(`🛑 ${signal} received — closing WhatsApp sockets (links are kept)`);
     server.close();
     try {
       await sessionManager.shutdown();
@@ -154,7 +169,7 @@ async function bootstrap() {
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('unhandledRejection', (err) => console.error(`[unhandledRejection] ${formatError(err)}`));
+  process.on('unhandledRejection', (err) => logger.error('❌ Unhandled promise rejection', { error: formatError(err), stack: err?.stack }));
 }
 
 bootstrap().catch((err) => {

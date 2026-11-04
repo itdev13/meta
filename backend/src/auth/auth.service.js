@@ -1,4 +1,5 @@
 const axios = require('axios');
+const logger = require('../utils/logger');
 const jwt = require('jsonwebtoken');
 const Installation = require('../schemas/installation.schema');
 const OAuthToken = require('../schemas/oauth-token.schema');
@@ -41,7 +42,7 @@ class AuthService {
         }),
       );
     } catch (error) {
-      console.error(`[Auth] token exchange failed | ${formatError(error)}`);
+      logger.error('❌ OAuth token exchange failed', { error: formatError(error) });
       throw error;
     }
 
@@ -54,7 +55,7 @@ class AuthService {
       if (companyId) {
         await CompanyLocation.updateOne({ companyId }, { $addToSet: { locationIds: locationId } }, { upsert: true });
       }
-      console.log(`[Auth] location install stored: ${locationId}`);
+      logger.info('🔑 OAuth install: sub-account connected', { locationId, companyId });
       return { locationId, companyId, scope: 'location' };
     }
 
@@ -71,7 +72,7 @@ class AuthService {
         },
         { upsert: true, new: true },
       );
-      console.log(`[Auth] company install stored: ${companyId}`);
+      logger.info('🔑 OAuth install: agency connected', { companyId });
       try {
         await this.syncCompanyLocations(companyId, access_token);
       } catch (error) {
@@ -154,7 +155,7 @@ class AuthService {
         { $set: { status: 'active', companyId }, $unset: { uninstalledAt: '' } },
       );
     }
-    console.log(`[Auth] synced ${locations.length} sub-accounts for company ${companyId}`);
+    logger.info('🏢 Agency sub-accounts synced', { companyId, subAccounts: locations.length });
     return locations;
   }
 
@@ -220,7 +221,7 @@ class AuthService {
           return this.crypto.decrypt(fresh.accessToken);
         }
         await OAuthToken.updateOne({ companyId, tokenType: 'company' }, { isActive: false });
-        console.error(`[Auth] company ${companyId} refresh token revoked — deactivated`);
+        logger.error('❌ Agency refresh token revoked — deactivated', { companyId });
       }
       throw error;
     }
@@ -241,7 +242,7 @@ class AuthService {
       refresh_token,
       expiresAt: new Date(Date.now() + expires_in * 1000),
     });
-    console.log(`[Auth] minted location token for ${locationId} from company ${companyId}`);
+    logger.info('🔄 Location token generated from agency token', { locationId, companyId });
     return access_token;
   }
 

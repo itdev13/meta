@@ -14,6 +14,7 @@ const TRIGGER_COPY = {
   whatsapp_contact_opted_out: ['Contact unsubscribed', 'A contact replies STOP (or is opted out manually or by a workflow).'],
   whatsapp_contact_opted_in: ['Contact re-subscribed', 'A contact replies START, or is opted back in.'],
   whatsapp_group_message_received: ['Group message received', 'Someone writes in a WhatsApp group that’s synced to the CRM.'],
+  whatsapp_call_received: ['WhatsApp call received', 'A WhatsApp call to a linked number was answered, declined or missed.'],
 };
 const ACTION_COPY = {
   whatsapp_send_message: ['Send WhatsApp message', 'Send text to the contact from their last-used number.'],

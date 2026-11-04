@@ -5,7 +5,7 @@
 module.exports = {
   apps: [
     {
-      name: 'whatsapp-connector-api',
+      name: 'whatsapp',
       cwd: __dirname + '/../backend',
       script: 'src/main.js',
       exec_mode: 'fork',
@@ -15,7 +15,7 @@ module.exports = {
       // Graceful stop: main.js closes sockets (keeps links) and releases leases on SIGTERM.
       kill_timeout: 15000,
       max_memory_restart: '3500M',
-      time: true,
+      time: false, // the app logger already timestamps every line
     },
   ],
 };

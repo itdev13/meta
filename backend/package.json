@@ -24,7 +24,8 @@
     "mongoose": "^8.9.5",
     "pino": "^9.6.0",
     "qrcode": "^1.5.4",
-    "socks-proxy-agent": "8.0.5"
+    "socks-proxy-agent": "8.0.5",
+    "winston": "3.19.0"
   },
   "devDependencies": {
     "eslint": "^9.18.0"

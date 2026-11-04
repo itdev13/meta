@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const logger = require('../utils/logger');
 const os = require('os');
 const pino = require('pino');
 const QRCode = require('qrcode');
@@ -232,21 +233,107 @@ class SessionManager extends EventEmitter {
   }
 
   /** Restore every session that should be live, staggered so WhatsApp doesn't see a burst. */
+  /**
+   * Bring every live number back after a restart — as a bounded queue, not a burst:
+   *   • at most WA_RESTORE_CONCURRENCY (default 5) numbers are handshaking at any moment
+   *   • each slot waits until its number is connected / needs a QR / failed (max 45s) before
+   *     taking the next one, plus a small gap (WA_RESTORE_STAGGER_MS, default 1500)
+   *   • most recently active numbers go first, so busy clients are back first
+   * Outbound sends for a number still in the queue wait for it (see waitForLocation) instead
+   * of failing. Returns immediately; restore runs in the background.
+   */
   async restoreAll() {
     const stagger = Number(process.env.WA_RESTORE_STAGGER_MS) || 1500;
+    const concurrency = Math.max(1, Number(process.env.WA_RESTORE_CONCURRENCY) || 5);
     const sessions = await WaSession.find({
       isActive: true,
       registered: true,
       status: { $nin: ['paused', 'logged_out', 'banned', 'replaced', 'qr_expired'] },
       $or: [{ ownerId: null }, { ownerId: this.instanceId }, { leaseUntil: { $lt: new Date() } }],
     })
-      .select('_id')
+      .sort({ lastMessageAt: -1, connectedAt: -1 })
+      .select('_id locationId')
       .lean();
-    console.log(`[WA] restoring ${sessions.length} session(s) on ${this.instanceId}`);
-    for (const s of sessions) {
-      this.start(s._id).catch((err) => console.warn(`[WA] restore ${s._id} failed: ${err.message}`));
-      await new Promise((r) => setTimeout(r, stagger));
+
+    this._restoring = new Map(sessions.map((s) => [String(s._id), s.locationId]));
+    const queue = sessions.map((s) => String(s._id));
+    const started = Date.now();
+    logger.info('♻️ Restoring WhatsApp numbers', { count: queue.length, instance: this.instanceId, concurrency });
+
+    const worker = async () => {
+      while (queue.length) {
+        const id = queue.shift();
+        try {
+          await this.start(id);
+          await this._waitSettled(id, 45_000);
+        } catch (err) {
+          console.warn(`[WA] restore ${id} failed: ${err.message}`);
+        } finally {
+          this._restoring.delete(id);
+          this.emit('restore.progress', { sessionId: id });
+        }
+        if (queue.length) await new Promise((r) => setTimeout(r, stagger));
+      }
+    };
+    Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker)).then(() => {
+      if (sessions.length) logger.info('✅ Restore complete', { count: sessions.length, seconds: Math.round((Date.now() - started) / 1000) });
+    });
+  }
+
+  /** Resolve once a session reaches a settled state (or after timeoutMs). */
+  _waitSettled(id, timeoutMs) {
+    const SETTLED = new Set(['connected', 'qr', 'pairing', 'qr_expired', 'logged_out', 'banned', 'replaced', 'paused', 'disconnected']);
+    const now = this.runtimes.get(id)?.status;
+    if (now && now !== 'connecting' && SETTLED.has(now)) return Promise.resolve(now);
+    return new Promise((resolve) => {
+      const done = (status) => {
+        clearTimeout(timer);
+        this.off('status', onStatus);
+        resolve(status);
+      };
+      const onStatus = (evt) => {
+        if (evt.sessionId === id && SETTLED.has(evt.status)) done(evt.status);
+      };
+      const timer = setTimeout(() => done('timeout'), timeoutMs);
+      this.on('status', onStatus);
+    });
+  }
+
+  /** True while a location still has numbers queued for restore or mid-(re)connect. */
+  hasPendingNumbers(locationId) {
+    for (const loc of (this._restoring || new Map()).values()) if (loc === locationId) return true;
+    for (const rt of this.runtimes.values()) {
+      if (rt.locationId === locationId && (rt.status === 'connecting' || rt.status === 'disconnected')) return true;
     }
+    return false;
+  }
+
+  /**
+   * For senders: if none of the location's numbers is connected yet but some are restoring or
+   * reconnecting, wait (up to timeoutMs) for one to come online. Resolves true if one did.
+   */
+  async waitForLocation(locationId, timeoutMs = Number(process.env.WA_SEND_WAIT_MS) || 20_000) {
+    const anyLive = () => [...this.runtimes.values()].some((rt) => rt.locationId === locationId && rt.status === 'connected');
+    if (anyLive()) return true;
+    if (!this.hasPendingNumbers(locationId)) return false;
+    return new Promise((resolve) => {
+      const finish = (ok) => {
+        clearTimeout(timer);
+        this.off('status', onStatus);
+        this.off('restore.progress', onProgress);
+        resolve(ok);
+      };
+      const onStatus = (evt) => {
+        if (evt.locationId === locationId && evt.status === 'connected') finish(true);
+      };
+      const onProgress = () => {
+        if (anyLive()) finish(true);
+        else if (!this.hasPendingNumbers(locationId)) finish(false);
+      };
+      const timer = setTimeout(() => finish(anyLive()), timeoutMs);
+      this.on('status', onStatus);
+      this.on('restore.progress', onProgress);
+    });
   }
 
   /** Graceful shutdown: close sockets, keep links, release leases so another instance can take over. */
@@ -361,6 +448,13 @@ class SessionManager extends EventEmitter {
       if (rt.gen !== gen) return;
       this._safeEmit(rt, 'messages.update', { session: this._sessionRef(rt), updates });
     });
+
+    // Voice/video call signalling (offer → ringing → accept|reject|timeout → terminate).
+    // Linked devices receive it but can't carry audio; the calls feature logs it to the CRM.
+    on('call', (calls) => {
+      if (rt.gen !== gen) return;
+      this._safeEmit(rt, 'call', { session: this._sessionRef(rt), sock, calls });
+    });
   }
 
   /** Pick this session's proxy (if any) → agent or null. Logs only masked URLs. */
@@ -463,7 +557,7 @@ class SessionManager extends EventEmitter {
           continue;
         }
         const why = rt.status === 'connecting' ? `stuck connecting ${Math.round((Date.now() - rt.statusAt) / 1000)}s` : 'disconnected with no retry pending';
-        console.warn(`[WA] watchdog: restarting ${rt.id} (${why})`);
+        logger.warn('🩺 Watchdog restarting stuck number', { sessionId: rt.id, locationId: rt.locationId, reason: why });
         try {
           await this._teardown(rt.id);
           await this.start(rt.id, { fromWatchdog: true });
@@ -526,7 +620,7 @@ class SessionManager extends EventEmitter {
         lastError: '',
       });
       await this._dedupeNumber(rt, phone);
-      console.log(`[WA] ${rt.id} connected as ${phone} (location ${rt.locationId})`);
+      logger.info('🔗 WhatsApp number connected', { sessionId: rt.id, locationId: rt.locationId, phone });
       return;
     }
 
@@ -579,7 +673,7 @@ class SessionManager extends EventEmitter {
           this._recordError(rt, 'reconnect', err);
         }
       }, delay);
-      console.warn(`[WA] ${rt.id} closed (${code}) — reconnect #${rt.retries} in ${Math.round(delay / 1000)}s`);
+      logger.warn('📴 Connection lost — reconnecting', { sessionId: rt.id, locationId: rt.locationId, code, attempt: rt.retries, inSeconds: Math.round(delay / 1000) });
       await this._setStatus(rt, 'disconnected', { lastError: `Connection lost (${code || 'network'}) — reconnecting.` });
     }
   }
@@ -590,7 +684,7 @@ class SessionManager extends EventEmitter {
     await WaSession.updateOne({ _id: rt.id }, { $set: { status, lastError, isActive: false, registered: false } });
     this._emitStatus(rt.id, await WaSession.findById(rt.id).lean());
     this.emit('session.closed', { session: this._sessionRef(rt), reason: status });
-    console.warn(`[WA] ${rt.id} terminal: ${status}`);
+    logger.warn('⛔ Number disconnected permanently', { sessionId: rt.id, locationId: rt.locationId, status });
   }
 
   /** Linking the same number twice in one sub-account → keep the new link, retire the old one. */

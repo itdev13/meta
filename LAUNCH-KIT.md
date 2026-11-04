@@ -44,8 +44,8 @@ Connect the WhatsApp number your business already uses by scanning a QR code, th
 
 ## Upload checklist (GHL → Build → Profile)
 - [ ] Basic Info → App name: `Greenline for WhatsApp`
-- [ ] Basic Info → App logo: `brand/icon-512.png`
-- [ ] Basic Info → Category / Tagline / Business niche / Company (`Vaultsuite`)
+- [ ] Basic Info → App logo: `brand/icon-c-512.png`
+- [ ] Basic Info → Category / Tagline / Business niche / Company (`EnrichFlow Labs`)
 - [ ] Listing Configuration → description above + keywords
 - [ ] Support Details → support email + help-site URL (pending: marketing site)
 - [ ] Getting Started Guide → steps from DEPLOY.md §4 (install → enable → scan QR)

@@ -55,6 +55,11 @@ const WaSessionSchema = new mongoose.Schema(
       blacklist: { type: [String], default: [] },             // E.164 numbers whose inbound is silently dropped
       // feature: proxy — ISO country code chosen from the configured proxy pool ('' = direct)
       proxyCountry: { type: String, default: '' },
+      // feature: calls (WhatsApp Voice) — call history in the CRM, missed-call reply, auto-decline
+      callLogging: { type: Boolean, default: true },
+      missedCallReply: { type: Boolean, default: false },
+      missedCallMessage: { type: String, default: 'Sorry we missed your call! Reply here and we will get back to you shortly.' },
+      autoRejectCalls: { type: Boolean, default: false },
       minDelayMs: { type: Number, default: null },
       dailyLimit: { type: Number, default: null },
     },

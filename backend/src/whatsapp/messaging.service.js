@@ -1,4 +1,5 @@
 const WaSession = require('../schemas/wa-session.schema');
+const logger = require('../utils/logger');
 const Installation = require('../schemas/installation.schema');
 const MessageLog = require('../schemas/message-log.schema');
 const { fetchMedia } = require('../media/media.store');
@@ -71,7 +72,7 @@ class MessagingService {
     const live = await this._liveSessions(locationId);
     const override = extractOverride(text);
     const out = (session, routedBy, note = '') => {
-      console.log(`[Route] ${locationId}${contactId ? ` contact=${contactId}` : ''} → ${numberName(session)} by ${routedBy}${note ? ` (${note})` : ''}`);
+      logger.info('🧭 Number selected', { locationId, contactId, number: numberName(session), phone: session.phoneNumber, routedBy, note: note || undefined });
       return { session, routedBy, text: override.text };
     };
     const skipped = [];
@@ -183,6 +184,15 @@ class MessagingService {
     await this.subscription.ensureEntitled(locationId);
     const ev = await this.access.ensureAllowed(locationId);
 
+    // Right after a restart (or a dropped connection) the number may still be reconnecting:
+    // wait briefly for it instead of failing the send with "no number connected".
+    if (this.manager.waitForLocation) {
+      const back = await this.manager.waitForLocation(locationId);
+      if (back === false && this.manager.hasPendingNumbers?.(locationId)) {
+        console.warn(`[Send] ${locationId}: numbers still reconnecting after wait — trying anyway`);
+      }
+    }
+
     const explicitGroup = groupJid ? toGroupJid(groupJid) : null;
     if (groupJid && !explicitGroup) throw codedError('That is not a valid WhatsApp group id.', 'GROUP_NOT_FOUND');
     let mapping = contactId ? await this.contacts.findByContact(locationId, contactId) : null;
@@ -267,6 +277,7 @@ class MessagingService {
       }
     }
 
+    logger.info('✅ Sent to WhatsApp', { locationId, contactId, source, number: session.phoneNumber, routedBy, parts: waMessageIds.length, ghlMessageId });
     hooks.afterSend({ ...hookCtx, text, waMessageIds }).catch(() => {});
     return { session, jid, waMessageIds, routedBy };
   }

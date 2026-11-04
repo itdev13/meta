@@ -16,6 +16,8 @@ const TRIGGERS = {
   CONTACT_OPTED_IN: 'whatsapp_contact_opted_in',
   // feature: groups
   GROUP_MESSAGE_RECEIVED: 'whatsapp_group_message_received',
+  // feature: calls
+  CALL_RECEIVED: 'whatsapp_call_received',
 };
 
 const ACTIONS = {

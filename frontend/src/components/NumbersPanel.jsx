@@ -388,7 +388,14 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
   const initial = n.settings || {};
   const [label, setLabel] = useState(n.label || '');
   const [assigned, setAssigned] = useState(() => (n.assignedUserIds || []).map(String));
-  const [s, setS] = useState(() => ({ ...initial, groupMode: initial.groupMode || 'all', blacklist: initial.blacklist || [], proxyCountry: initial.proxyCountry || '' }));
+  const [s, setS] = useState(() => ({
+    ...initial,
+    groupMode: initial.groupMode || 'all',
+    blacklist: initial.blacklist || [],
+    proxyCountry: initial.proxyCountry || '',
+    callLogging: initial.callLogging !== false,
+    missedCallMessage: initial.missedCallMessage || '',
+  }));
   const [section, setSection] = useState('general');
   const [busy, setBusy] = useState(false);
   const [applyPrompt, setApplyPrompt] = useState(null); // null | 'live' | 'later'
@@ -412,6 +419,11 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
     routing: !sameList(assigned, (n.assignedUserIds || []).map(String)),
     inbound: !!s.doNotCreateContacts !== !!initial.doNotCreateContacts || !!s.disableIncoming !== !!initial.disableIncoming || !sameList(s.blacklist, initial.blacklist || []),
     sync: SYNC_ROWS.some(([k]) => !!s[k] !== !!initial[k]) || !!s.syncGroups !== !!initial.syncGroups || s.groupMode !== (initial.groupMode || 'all'),
+    calls:
+      s.callLogging !== (initial.callLogging !== false) ||
+      !!s.autoRejectCalls !== !!initial.autoRejectCalls ||
+      !!s.missedCallReply !== !!initial.missedCallReply ||
+      s.missedCallMessage !== (initial.missedCallMessage || ''),
     connection: s.proxyCountry !== (initial.proxyCountry || ''),
     pace: isAgency && ((s.minDelayMs ?? '') !== (initial.minDelayMs ?? '') || (s.dailyLimit ?? '') !== (initial.dailyLimit ?? '')),
   };
@@ -422,6 +434,7 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
     { id: 'routing', label: 'Routing', icon: 'users', count: assigned.length || null },
     { id: 'inbound', label: 'Inbound', icon: 'arrowIn' },
     { id: 'sync', label: 'Sync', icon: 'refresh' },
+    { id: 'calls', label: 'Calls', icon: 'phone' },
     { id: 'connection', label: 'Connection', icon: 'shield' },
     isAgency && { id: 'pace', label: 'Sending pace', icon: 'sliders' },
   ].filter(Boolean);
@@ -438,6 +451,10 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
       disableIncoming: !!s.disableIncoming,
       blacklist: s.blacklist,
       proxyCountry: s.proxyCountry || '',
+      callLogging: !!s.callLogging,
+      autoRejectCalls: !!s.autoRejectCalls,
+      missedCallReply: !!s.missedCallReply,
+      missedCallMessage: s.missedCallMessage || '',
     };
     if (isAgency) {
       settings.minDelayMs = s.minDelayMs === '' ? null : s.minDelayMs;
@@ -625,6 +642,48 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
                     />
                   </div>
                 </div>
+              )}
+            </SectionHead>
+          )}
+
+          {section === 'calls' && (
+            <SectionHead title="Calls" desc="WhatsApp calls to this number. Calls ring on the phone — linked devices can’t carry call audio — and are logged here.">
+              <div>
+                <SettingRow
+                  t="Log calls in Conversations"
+                  d="Answered, declined and missed WhatsApp calls appear on the contact’s conversation, and fire the “WhatsApp call received” trigger."
+                  on={!!s.callLogging}
+                  onChange={(v) => set('callLogging', v)}
+                />
+                <SettingRow
+                  t="Decline calls automatically"
+                  d="For chat-only businesses: incoming WhatsApp calls are declined straight away (they’re still logged)."
+                  on={!!s.autoRejectCalls}
+                  onChange={(v) => set('autoRejectCalls', v)}
+                  warn
+                />
+                <SettingRow
+                  t="Reply to missed calls"
+                  d="Send a WhatsApp message after a missed or declined call — at most once every 30 minutes per contact."
+                  on={!!s.missedCallReply}
+                  onChange={(v) => set('missedCallReply', v)}
+                />
+              </div>
+              {s.missedCallReply && (
+                <Field label="Missed-call message" hint="Variables like {{first_name|there}} work here.">
+                  <textarea
+                    className="textarea"
+                    value={s.missedCallMessage}
+                    maxLength={1000}
+                    onChange={(e) => set('missedCallMessage', e.target.value)}
+                    placeholder="Sorry we missed your call! Reply here and we’ll get back to you shortly."
+                  />
+                </Field>
+              )}
+              {s.missedCallReply && !String(s.missedCallMessage || '').trim() && (
+                <Banner tone="warn" icon="alert" title="Write a message">
+                  Missed-call replies are on, but the message is empty, so nothing will be sent.
+                </Banner>
               )}
             </SectionHead>
           )}

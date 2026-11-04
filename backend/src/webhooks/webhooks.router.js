@@ -1,4 +1,5 @@
 const { Router } = require('express');
+const logger = require('../utils/logger');
 const { ghlSignatureGuard } = require('./ghl-signature');
 const Installation = require('../schemas/installation.schema');
 const OAuthToken = require('../schemas/oauth-token.schema');
@@ -32,6 +33,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
     // Ack immediately — sends are paced (seconds apart) and GHL must not time out / retry.
     res.json({ ok: true });
     if (!locationId || !messageId) return;
+    logger.info('📤 Outbound message from CRM', { locationId, contactId, messageId, attachments: Array.isArray(attachments) ? attachments.length : 0, userId });
 
     try {
       if (await MessageLog.exists({ locationId, ghlMessageId: messageId })) return; // GHL retry
@@ -48,7 +50,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
       // Delivery/read status follows from WhatsApp receipts (MessagingService.applyReceipts).
     } catch (error) {
       const friendly = FRIENDLY[error.code] || error.message || 'WhatsApp send failed';
-      console.warn(`[Outbound] ${locationId} ${messageId} failed: ${error.code || ''} ${formatError(error)}`);
+      logger.warn('❌ Outbound WhatsApp message failed', { locationId, contactId, messageId, code: error.code, error: formatError(error) });
       await messagingService.ghl.updateMessageStatus(locationId, messageId, 'failed', { code: (error.code || 'delivery_failed').toLowerCase(), type: 'saas', message: friendly });
       workflowsService
         .fireTrigger(TRIGGERS.MESSAGE_FAILED, locationId, {
@@ -67,7 +69,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
   // ── Lifecycle / billing ─────────────────────────────────────
   router.post('/ghl', ghlSignatureGuard, async (req, res) => {
     const p = req.body || {};
-    console.log(`[Lifecycle] ${p.type || '?'} location=${p.locationId || '-'} company=${p.companyId || '-'} plan=${p.planId || p.newPlanId || '-'}`);
+    logger.info(`📥 ${p.type || 'UNKNOWN'} webhook`, { type: p.type, appId: p.appId, companyId: p.companyId, locationId: p.locationId || '(company-level)', planId: p.planId || p.newPlanId });
     try {
       switch (p.type) {
         case 'INSTALL':
@@ -90,7 +92,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
           break;
       }
     } catch (error) {
-      console.error(`[Lifecycle] ${p.type} handling failed | ${formatError(error)}`);
+      logger.error(`❌ ${p.type} webhook handling failed`, { locationId: p.locationId, companyId: p.companyId, error: formatError(error) });
     }
     res.json({ ok: true });
   });
@@ -132,6 +134,7 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
     );
     await recordInstallMeta(p);
     await subscriptionService.onInstall({ locationId, companyId, appId: p.appId, planId: p.planId, raw: p });
+    logger.info('✅ Installation recorded', { locationId, companyId, appId: p.appId });
     await numbersService.reconcile(locationId); // resume numbers paused while uninstalled/unpaid
   }
 
@@ -157,7 +160,8 @@ function createWebhooksRouter({ messagingService, subscriptionService, numbersSe
       await OAuthToken.deleteOne({ _id: token._id });
     }
     await Installation.updateOne({ locationId }, { $set: { status: 'uninstalled', uninstalledAt: new Date() } });
-    await numbersService.logoutLocation(locationId); // unlink devices from the customer's phone
+    const { loggedOut } = await numbersService.logoutLocation(locationId); // unlink devices from the customer's phone
+    logger.info('✅ Uninstall cleanup done', { locationId, numbersLoggedOut: loggedOut });
     await subscriptionService.setStatus(locationId, 'canceled');
   }
 

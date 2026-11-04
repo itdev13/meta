@@ -1,4 +1,5 @@
 const { downloadMediaMessage, normalizeMessageContent, getContentType } = require('@whiskeysockets/baileys');
+const logger = require('../utils/logger');
 const pino = require('pino');
 const WaSession = require('../schemas/wa-session.schema');
 const Installation = require('../schemas/installation.schema');
@@ -231,6 +232,7 @@ class InboundService {
     }
 
     await MessageLog.updateOne({ _id: log._id }, { $set: { ghlMessageId: result?.messageId, ghlContactId: payload.contactId, status: 'delivered' } });
+    logger.info(fromMe ? '📲 Phone reply mirrored to CRM' : '📨 WhatsApp message synced to CRM', { locationId: session.locationId, sessionId: session.id, contactId: payload.contactId, kind: info.kind, attachments: attachments.length, created: !!created });
     if (!fromMe) {
       WaSession.updateOne({ _id: session.id }, { $inc: { 'stats.totalInbound': 1 }, $set: { lastMessageAt: new Date() } }).catch(() => {});
       if (doc.settings?.markRead) this.manager.readMessages(session.id, [msg.key]);
@@ -417,6 +419,7 @@ class InboundService {
     }
 
     await MessageLog.updateOne({ _id: log._id }, { $set: { ghlMessageId: result?.messageId, ghlContactId: payload.contactId, status: 'delivered' } });
+    logger.info(fromMe ? '📲 Group reply mirrored to CRM' : '👥 Group message synced to CRM', { locationId: session.locationId, sessionId: session.id, groupJid, contactId: payload.contactId, kind: info.kind });
     if (!fromMe) {
       WaSession.updateOne({ _id: session.id }, { $inc: { 'stats.totalInbound': 1 }, $set: { lastMessageAt: new Date() } }).catch(() => {});
       if (doc.settings?.markRead) this.manager.readMessages(session.id, [msg.key]);
