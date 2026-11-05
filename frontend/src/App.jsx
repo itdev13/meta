@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { onSessionExpired, startSession } from './lib/api';
-import { Button, Empty, Spinner, ToastProvider } from './components/ui';
-import { WaGlyph } from './components/icons';
+import { Button, Empty, ToastProvider } from './components/ui';
+import BootSplash from './components/BootSplash';
 import AgencyApp from './pages/agency/AgencyApp';
 import LocationApp from './pages/location/LocationApp';
 import ConnectPage from './pages/public/ConnectPage';
@@ -25,8 +25,12 @@ export default function App() {
   return <CrmApp />;
 }
 
+const SPLASH_FADE_MS = 360;
+
 function CrmApp() {
   const [state, setState] = useState({ phase: 'loading' });
+  // 'on' while booting → 'leaving' (fades out over the app) → 'off'.
+  const [splash, setSplash] = useState('on');
 
   const boot = async () => {
     setState({ phase: 'loading' });
@@ -43,22 +47,24 @@ function CrmApp() {
     boot();
   }, []);
 
-  if (state.phase === 'loading') {
-    return (
-      <div className="center-screen">
-        <div className="stack" style={{ alignItems: 'center', gap: 16 }}>
-          <div className="brandmark" style={{ width: 52, height: 52, borderRadius: 16 }}>
-            <WaGlyph size={30} />
-          </div>
-          <Spinner large />
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (state.phase === 'loading') {
+      setSplash('on');
+      return undefined;
+    }
+    setSplash((s) => (s === 'off' ? 'off' : 'leaving'));
+    const t = setTimeout(() => setSplash('off'), SPLASH_FADE_MS);
+    return () => clearTimeout(t);
+  }, [state.phase]);
+
+  if (state.phase === 'loading') return <BootSplash />;
+
+  const overlay = splash === 'leaving' ? <BootSplash leaving /> : null;
 
   if (state.phase === 'error' || state.phase === 'expired') {
     return (
       <div className="center-screen">
+        {overlay}
         <Empty
           icon={state.phase === 'expired' ? 'refresh' : 'alert'}
           title={state.phase === 'expired' ? 'Your session expired' : 'Couldn’t open WhatsApp'}
@@ -76,6 +82,7 @@ function CrmApp() {
 
   return (
     <ToastProvider>
+      {overlay}
       {state.user.scope === 'agency' ? <AgencyApp user={state.user} context={state.context} /> : <LocationApp user={state.user} />}
     </ToastProvider>
   );

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { loc } from '../../lib/api';
 import { useLiveStatus } from '../../lib/live';
 import { plural } from '../../lib/format';
-import { Banner, Button, Empty, Field, Pill, Skeleton, useAction } from '../../components/ui';
+import { Banner, Button, Empty, Field, Pill, useAction } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import NumbersPanel from '../../components/NumbersPanel';
 import NumberSelectionPanel from '../../components/NumberSelectionPanel';
@@ -329,19 +329,45 @@ function AccessBlocked({ user, access, onRequested }) {
 }
 
 function LoadingShell() {
+  const sk = (style) => <span className="boot-sk" style={style} />;
   return (
     <div className="shell">
       <Topbar crumb="" />
-      <main className="page stack" style={{ gap: 16 }}>
-        <Skeleton h={30} w={260} />
+      <main className="page" aria-busy="true" aria-label="Loading WhatsApp numbers">
+        <div className="page-head">
+          <div style={{ width: '100%', maxWidth: 560 }}>
+            {sk({ width: 240, maxWidth: '70%', height: 26 })}
+            {sk({ width: '94%', height: 13, marginTop: 12 })}
+          </div>
+        </div>
         <div className="stats">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} h={92} r={16} />
+            <div key={i} className="card stat boot-sk-card">
+              <div className="row" style={{ gap: 8 }}>
+                {sk({ width: 14, height: 14, borderRadius: 4 })}
+                {sk({ width: '48%', height: 11 })}
+              </div>
+              {sk({ width: 56, height: 26, marginTop: 12 })}
+            </div>
           ))}
         </div>
         <div className="numbers-grid">
           {[0, 1].map((i) => (
-            <Skeleton key={i} h={230} r={16} />
+            <div key={i} className="card ncard boot-sk-card">
+              <div className="row" style={{ gap: 12 }}>
+                {sk({ width: 44, height: 44, borderRadius: 13 })}
+                <div className="grow">
+                  {sk({ width: '58%', height: 15 })}
+                  {sk({ width: '36%', height: 11, marginTop: 8 })}
+                </div>
+                {sk({ width: 84, height: 24, borderRadius: 99 })}
+              </div>
+              {sk({ height: 62, borderRadius: 10 })}
+              <div className="row" style={{ gap: 8 }}>
+                {sk({ width: 96, height: 30, borderRadius: 8 })}
+                {sk({ width: 72, height: 30, borderRadius: 8 })}
+              </div>
+            </div>
           ))}
         </div>
       </main>

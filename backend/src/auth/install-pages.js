@@ -36,8 +36,8 @@ function renderInstallPage({ kind, agency = false, already = false, message = ''
 
   const steps = agency
     ? [
-        ['menu', `Open <b>${MENU}</b> in your agency’s left menu`, 'Your agency console lists every sub-account.'],
-        ['toggle', 'Choose which sub-accounts get WhatsApp', 'Turn it on for everyone, or only for the clients you pick.'],
+        ['menu', `Open <b>${MENU}</b> in your agency’s left menu`, 'The agency console lists every sub-account with the app installed.'],
+        ['toggle', 'Switch WhatsApp on for your clients', 'It starts off for every sub-account, so you decide who gets it.'],
         ['qr', 'Link numbers', 'Scan the QR yourself, send a share link, or let clients scan their own.'],
       ]
     : [
@@ -64,41 +64,42 @@ body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:ce
 .brand img{width:40px;height:40px;border-radius:12px;box-shadow:0 8px 24px -8px rgba(37,211,102,.6)}
 .brand b{font-size:17px;font-weight:800;letter-spacing:-.01em}
 .brand span{font-size:17px;font-weight:500;opacity:.7}
-.card{width:100%;max-width:520px;background:#fff;border-radius:24px;overflow:hidden;
+.card{width:100%;max-width:540px;background:#fff;border-radius:24px;overflow:hidden;
   box-shadow:0 40px 90px -30px rgba(0,0,0,.6),0 2px 0 rgba(255,255,255,.06) inset;animation:rise .55s cubic-bezier(.2,.8,.3,1) both}
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.98)}}
-.hero{padding:36px 36px 26px;text-align:center;background:linear-gradient(180deg,${ok ? '#f2fbf6' : '#fdf3f3'},#fff)}
-.badge{width:76px;height:76px;margin:0 auto 18px;border-radius:24px;display:grid;place-items:center;position:relative;
+.hero{padding:40px 40px 28px;text-align:center;background:linear-gradient(180deg,${ok ? '#f2fbf6' : '#fdf3f3'},#fff)}
+.badge{width:64px;height:64px;margin:0 auto 18px;border-radius:20px;display:grid;place-items:center;position:relative;
   background:${ok ? 'linear-gradient(140deg,#22c55e,#0a6b34)' : 'linear-gradient(140deg,#f87171,#b91c1c)'};
-  box-shadow:0 16px 36px -12px ${ok ? 'rgba(16,136,63,.65)' : 'rgba(185,28,28,.5)'};animation:pop .6s .15s cubic-bezier(.2,.9,.3,1.4) both}
-.badge svg{width:38px;height:38px;color:#fff}
-.badge::after{content:"";position:absolute;inset:-8px;border-radius:30px;border:2px solid ${ok ? 'rgba(34,197,94,.25)' : 'rgba(248,113,113,.25)'};animation:ring 1.6s .5s ease-out both}
+  box-shadow:0 14px 30px -12px ${ok ? 'rgba(16,136,63,.6)' : 'rgba(185,28,28,.5)'};animation:pop .6s .15s cubic-bezier(.2,.9,.3,1.4) both}
+.badge svg{width:32px;height:32px;color:#fff}
+.badge::after{content:"";position:absolute;inset:-7px;border-radius:26px;border:2px solid ${ok ? 'rgba(34,197,94,.25)' : 'rgba(248,113,113,.25)'};animation:ring 1.6s .5s ease-out both}
 @keyframes pop{from{transform:scale(.4) rotate(-12deg);opacity:0}}
 @keyframes ring{from{transform:scale(.85);opacity:1}to{transform:scale(1.25);opacity:0}}
-h1{margin:0 0 8px;font-size:26px;font-weight:800;letter-spacing:-.025em}
-.sub{margin:0 auto;max-width:400px;color:var(--ink2);font-size:15px;line-height:1.55}
-.body{padding:8px 32px 28px}
-.label{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:6px 4px 10px}
-.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.step{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-radius:14px;background:#fff;
-  animation:rise .5s both}
-.step:nth-child(1){animation-delay:.25s}.step:nth-child(2){animation-delay:.35s}.step:nth-child(3){animation-delay:.45s}
-.ic{flex:none;width:36px;height:36px;border-radius:11px;background:var(--soft);color:var(--brand);display:grid;place-items:center;position:relative}
-.ic svg{width:18px;height:18px}
-.ic i{position:absolute;top:-6px;left:-6px;width:18px;height:18px;border-radius:50%;background:var(--brand);color:#fff;font:700 10.5px/18px Inter,sans-serif;font-style:normal;text-align:center;box-shadow:0 0 0 2px #fff}
-.t{font-weight:600;font-size:14.5px;line-height:1.4}.t b{font-weight:800;color:var(--brand)}
-.d{color:var(--ink3);font-size:13px;margin-top:2px;line-height:1.45}
-.err{margin:4px 0 0;padding:12px 14px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:13.5px;line-height:1.5;word-break:break-word}
-.actions{display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap}
-.btn{appearance:none;border:0;cursor:pointer;height:44px;padding:0 20px;border-radius:12px;font:600 14.5px Inter,sans-serif;
-  display:inline-flex;align-items:center;gap:8px;text-decoration:none}
-.btn-primary{background:var(--brand);color:#fff;box-shadow:0 8px 20px -8px rgba(16,136,63,.7)}
+h1{margin:0 0 8px;font-size:26px;font-weight:800;letter-spacing:-.025em;line-height:1.2}
+.sub{margin:0 auto;max-width:380px;color:var(--ink2);font-size:15px;line-height:1.6}
+.body{padding:4px 40px 32px}
+.panel{background:#f6faf8;border:1px solid #e4efe9;border-radius:16px;padding:20px 22px}
+.label{font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin:0 0 16px}
+.steps{list-style:none;margin:0;padding:0}
+.step{position:relative;display:grid;grid-template-columns:28px 1fr;column-gap:14px;padding-bottom:18px;animation:rise .5s both}
+.step:last-child{padding-bottom:0}
+.step:nth-child(1){animation-delay:.2s}.step:nth-child(2){animation-delay:.3s}.step:nth-child(3){animation-delay:.4s}
+.step::before{content:"";position:absolute;left:13px;top:30px;bottom:2px;width:2px;border-radius:2px;background:#d4e9dc}
+.step:last-child::before{display:none}
+.num{width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;font-weight:700;font-size:13px;display:grid;place-items:center;
+  box-shadow:0 0 0 4px #e3f3e9}
+.t{font-weight:600;font-size:15px;line-height:1.4;padding-top:3px}.t b{font-weight:700;color:var(--brand)}
+.d{color:var(--ink3);font-size:13.5px;margin-top:3px;line-height:1.5}
+.err{padding:14px 16px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:14px;line-height:1.55;word-break:break-word;text-align:center}
+.actions{display:flex;justify-content:center;margin-top:26px}
+.btn{appearance:none;border:0;cursor:pointer;height:46px;padding:0 24px;border-radius:12px;font:600 15px Inter,sans-serif;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:var(--brand);color:#fff;box-shadow:0 10px 22px -10px rgba(16,136,63,.75)}
 .btn-primary:hover{background:#0c7536}
-.btn-ghost{background:#f1f4f2;color:var(--ink)}
-.hint{text-align:center;color:var(--ink3);font-size:12.5px;margin-top:12px}
-.foot{margin-top:22px;color:rgba(255,255,255,.55);font-size:12.5px;text-align:center}
+.hint{text-align:center;color:var(--ink3);font-size:13px;margin-top:12px;line-height:1.5}
+.hint b{color:var(--ink2)}
+.foot{margin-top:24px;color:rgba(255,255,255,.55);font-size:12.5px;text-align:center;line-height:1.7}
 .foot a{color:rgba(255,255,255,.8)}
-@media (max-width:520px){.hero{padding:30px 22px 20px}.body{padding:6px 18px 22px}h1{font-size:23px}}
+@media (max-width:520px){.hero{padding:32px 22px 22px}.body{padding:4px 18px 24px}.panel{padding:18px}h1{font-size:23px}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style></head><body>
 <div class="brand"><img src="${LOGO}" alt=""/><b>${BRAND}</b><span>for WhatsApp</span></div>
@@ -115,9 +116,9 @@ h1{margin:0 0 8px;font-size:26px;font-weight:800;letter-spacing:-.025em}
   <section class="body">
     ${
       ok
-        ? `<div class="label">Next steps</div><ol class="steps">${steps
-            .map(([ic, t, d], i) => `<li class="step"><span class="ic">${icon(ic)}<i>${i + 1}</i></span><div><div class="t">${t}</div><div class="d">${d}</div></div></li>`)
-            .join('')}</ol>`
+        ? `<div class="panel"><div class="label">Next steps</div><ol class="steps">${steps
+            .map(([, t, d], i) => `<li class="step"><span class="num">${i + 1}</span><div><div class="t">${t}</div><div class="d">${d}</div></div></li>`)
+            .join('')}</ol></div>`
         : `<div class="err">${escapeHtml(message || 'Unknown error')}</div>`
     }
     <div class="actions">
