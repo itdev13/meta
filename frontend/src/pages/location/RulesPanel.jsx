@@ -16,6 +16,7 @@ import {
 import { formatPhone, plural, timeAgo } from '../../lib/format';
 import { Banner, Button, Confirm, Empty, EmptyState, Field, IconButton, KpiGrid, KpiSkeleton, KpiTile, Menu, Modal, PageHeader, Pill, Segmented, Skeleton, Toggle, useAction, useToast } from '../../components/ui';
 import { Icon } from '../../components/icons';
+import TimezonePicker from '../../components/TimezonePicker';
 
 // ── Constants & helpers ───────────────────────────────────────────
 
@@ -1644,25 +1645,15 @@ function AwayView({ rapi, settings, hours, templates, numbers, businessName, onS
           <div className="ar-away-col">
             <div className="ar-col-h">Business hours</div>
             <Field label="Timezone" hint={!form.away.timezone ? `Follows your sub-account timezone${locTz ? '' : ' (not set — using UTC)'}.` : null}>
-              <select className="select" value={form.away.timezone} onChange={(e) => setAway('timezone', e.target.value)}>
-                <option value="">Sub-account timezone{locTz ? ` (${locTz})` : ''}</option>
-                <optgroup label="Common">
-                  {tzOptions.common.map((z) => (
-                    <option key={z} value={z}>
-                      {z.replace(/_/g, ' ')}
-                    </option>
-                  ))}
-                </optgroup>
-                {tzOptions.rest.length > 0 && (
-                  <optgroup label="All timezones">
-                    {tzOptions.rest.map((z) => (
-                      <option key={z} value={z}>
-                        {z.replace(/_/g, ' ')}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <TimezonePicker
+                value={form.away.timezone}
+                onChange={(v) => setAway('timezone', v)}
+                defaultZone={locTz || hours?.timezone || ''}
+                groups={[
+                  { label: 'Common', zones: tzOptions.common },
+                  { label: 'All timezones', zones: tzOptions.rest },
+                ]}
+              />
             </Field>
 
             <div className="row wrap" style={{ gap: 6 }}>
