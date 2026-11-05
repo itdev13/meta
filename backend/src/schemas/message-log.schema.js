@@ -22,7 +22,8 @@ const MessageLogSchema = new mongoose.Schema(
     ghlMessageId: { type: String, index: true },
     ghlContactId: { type: String },
     kind: { type: String, default: 'text' }, // text | image | video | audio | document | sticker | location | contact | reaction | other
-    preview: { type: String, default: '' },   // first 140 chars, for the activity feed
+    // Never message content (that lives in the CRM). Only system lines, e.g. "Missed WhatsApp call".
+    preview: { type: String, default: '' },
     status: { type: String, enum: ['pending', 'sent', 'delivered', 'read', 'failed'], default: 'sent' },
     error: { type: String, default: '' },
     // feature: routing — which rule picked the sending number (outbound only):

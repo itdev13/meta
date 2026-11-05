@@ -37,6 +37,44 @@ function vcardPhone(vcard) {
   return m ? m[1].trim() : '';
 }
 
+/** Text of a business message (template / buttons / list / interactive) plus its button labels. */
+function businessText(type, m) {
+  if (!m) return '';
+  const lines = [];
+  const add = (...xs) => xs.forEach((x) => x && String(x).trim() && lines.push(String(x).trim()));
+  const buttons = [];
+  if (type === 'templateMessage') {
+    const t = m.hydratedTemplate || m.hydratedFourRowTemplate || {};
+    add(t.hydratedTitleText, t.hydratedContentText, t.hydratedFooterText);
+    for (const b of t.hydratedButtons || []) {
+      const u = b.urlButton;
+      const c = b.callButton;
+      if (u) buttons.push(u.url ? `${u.displayText} (${u.url})` : u.displayText);
+      else if (c) buttons.push(c.phoneNumber ? `${c.displayText} (${c.phoneNumber})` : c.displayText);
+      else if (b.quickReplyButton) buttons.push(b.quickReplyButton.displayText);
+    }
+  } else if (type === 'buttonsMessage') {
+    add(m.text, m.contentText, m.footerText);
+    for (const b of m.buttons || []) buttons.push(b.buttonText?.displayText);
+  } else if (type === 'listMessage') {
+    add(m.title, m.description, m.footerText);
+    for (const sec of m.sections || []) for (const r of sec.rows || []) buttons.push(r.title);
+  } else if (type === 'interactiveMessage') {
+    add(m.header?.title, m.body?.text, m.footer?.text);
+    for (const b of m.nativeFlowMessage?.buttons || []) {
+      try {
+        const p = JSON.parse(b.buttonParamsJson || '{}');
+        buttons.push(p.url ? `${p.display_text} (${p.url})` : p.display_text);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  const labels = buttons.filter(Boolean);
+  if (labels.length) lines.push(labels.map((x) => `▸ ${x}`).join('\n'));
+  return lines.join('\n\n');
+}
+
 /**
  * Turn a WhatsApp message into { kind, text, media } for the CRM thread.
  * Returns null for messages that aren't conversation content (receipts, key distribution…).
@@ -79,6 +117,14 @@ function describe(message) {
       return { kind: 'text', text: m.selectedDisplayText || '' };
     case 'interactiveResponseMessage':
       return { kind: 'text', text: m.body?.text || '' };
+    // Business messages (templates, buttons, lists, interactive) — keep their text and button labels.
+    case 'templateMessage':
+    case 'buttonsMessage':
+    case 'listMessage':
+    case 'interactiveMessage': {
+      const text = businessText(type, m);
+      return text ? { kind: 'text', text } : null;
+    }
     case 'editedMessage': {
       const inner = describe(m.message);
       return inner ? { ...inner, text: `✏️ Edited: ${inner.text}` } : null;
@@ -228,7 +274,6 @@ class InboundService {
         waJid: pnJid || lidJid,
         waMessageId: msg.key.id,
         kind: info.kind,
-        preview: (info.text || `[${info.kind}]`).slice(0, 140),
         status: 'pending',
       });
     } catch (err) {
@@ -427,7 +472,6 @@ class InboundService {
         waJid: groupJid,
         waMessageId: msg.key.id,
         kind: info.kind,
-        preview: (info.text || `[${info.kind}]`).slice(0, 140),
         status: 'pending',
       });
     } catch (err) {

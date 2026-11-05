@@ -129,7 +129,7 @@ export default function SubAccountDrawer({ s, isAdmin, onClose, onChanged, onTog
           Recent activity
         </div>
         <div className="card">
-          <ActivityFeed locationId={s.id} numbers={detail?.numbers || []} limit={15} refreshKey={feedKey} />
+          <ActivityFeed locationId={s.id} numbers={detail?.numbers || []} limit={15} refreshKey={feedKey} compact />
         </div>
       </div>
     </Drawer>

@@ -255,7 +255,9 @@ class NumbersService {
       direction: r.direction,
       source: r.source,
       kind: r.kind,
-      preview: r.preview,
+      isGroup: !!r.isGroup,
+      // Only system lines (calls). Older rows may still hold message text — never send it.
+      preview: r.kind === 'call' ? r.preview : '',
       status: r.status,
       error: r.error,
       phone: r.waJid && r.waJid.endsWith('@s.whatsapp.net') ? `+${r.waJid.split('@')[0]}` : '',

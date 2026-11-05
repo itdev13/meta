@@ -10,11 +10,6 @@ const { extractOverride, resolveNumberRef, tagPhone, samePhone, numberName, TtlC
 const RECEIPT = { 3: 'delivered', 4: 'read', 5: 'read' };
 const RANK = { pending: 0, sent: 1, delivered: 2, read: 3, failed: -1 };
 
-function previewOf(text, kind) {
-  if (text) return String(text).slice(0, 140);
-  return kind === 'text' ? '' : `[${kind}]`;
-}
-
 function codedError(message, code, statusCode = 400) {
   return Object.assign(new Error(message), { code, statusCode });
 }
@@ -254,7 +249,6 @@ class MessagingService {
         ghlMessageId: i === 0 ? ghlMessageId : undefined,
         ghlContactId: contactId,
         kind: part.kind,
-        preview: previewOf(part.kind === 'text' ? text : i === 0 ? text : '', part.kind),
         status: 'sent',
         routedBy,
       }).catch((err) => console.warn(`[Send] log failed: ${err.message}`));
