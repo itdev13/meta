@@ -89,6 +89,50 @@ function describe(message) {
 }
 
 /**
+ * feature: inbound details — Click-to-WhatsApp ad that started this chat (contextInfo.externalAdReply).
+ * → { title, body, url, sourceId, sourceType, app, clickId } or null.
+ */
+function extractAd(message) {
+  const content = normalizeMessageContent(message);
+  if (!content) return null;
+  const type = getContentType(content);
+  const ctx = content[type]?.contextInfo;
+  const ad = ctx?.externalAdReply;
+  if (!ad || !(ad.title || ad.body || ad.sourceUrl || ad.sourceId)) return null;
+  const app = String(ctx.entryPointConversionApp || ctx.conversionSource || '').toLowerCase();
+  return {
+    title: String(ad.title || '').trim(),
+    body: String(ad.body || '').trim(),
+    url: String(ad.sourceUrl || '').trim(),
+    sourceId: String(ad.sourceId || ''),
+    sourceType: String(ad.sourceType || 'ad'),
+    app: /insta/.test(app) ? 'Instagram' : /facebook|fb/.test(app) ? 'Facebook' : '',
+    clickId: String(ad.ctwaClid || ''),
+  };
+}
+
+/** feature: inbound details — the extra lines added to the CRM copy of a message (never the triggers' text). */
+function crmDecorations(doc, { ad, fromMe }) {
+  const lines = [];
+  if (ad && !fromMe) {
+    const where = ad.app ? `${ad.app} ad` : 'an ad';
+    lines.push(`📣 Came from ${where}${ad.title ? `: “${ad.title}”` : ''}`);
+    if (ad.body) lines.push(ad.body.length > 220 ? `${ad.body.slice(0, 217)}…` : ad.body);
+    if (ad.url) lines.push(`🔗 ${ad.url}`);
+  }
+  if (!fromMe && doc.settings?.receivedOnTag) {
+    const name = `WhatsApp #${doc.index || '?'}${doc.label ? ` · ${doc.label}` : ''}`;
+    lines.push(`↘ Received on ${name}${doc.phoneNumber ? ` (${doc.phoneNumber})` : ''}`);
+  }
+  return lines;
+}
+
+function withDecorations(text, lines) {
+  if (!lines.length) return text;
+  return `${text ? `${text}\n\n` : ''}${lines.join('\n')}`;
+}
+
+/**
  * WhatsApp → CRM. Customer messages become inbound messages on the contact's conversation;
  * replies the business typed on the phone are mirrored as outbound so the CRM thread is complete.
  */
@@ -204,12 +248,14 @@ class InboundService {
     const attachments = info.media ? await this._media(session, sock, msg, info, mapping.ghlContactId) : [];
     let text = info.text || '';
     if (info.media && !attachments.length) text = `${text ? `${text}\n` : ''}[${info.kind} could not be downloaded]`;
+    const ad = !fromMe && doc.settings?.adDetails !== false ? extractAd(msg.message) : null;
+    const crmText = withDecorations(text, crmDecorations(doc, { ad, fromMe }));
 
     const providerId = await this._providerId(session.locationId);
     const payload = {
       conversationProviderId: providerId,
       contactId: mapping.ghlContactId,
-      ...(text ? { message: text } : {}),
+      ...(crmText ? { message: crmText } : {}),
       ...(attachments.length ? { attachments } : {}),
       altId: msg.key.id,
       ...(ts ? { date: new Date(ts).toISOString() } : {}),
@@ -250,7 +296,12 @@ class InboundService {
       linkedNumberLabel: doc.label || '',
       attachmentUrl: attachments[0] || '',
       timestamp: new Date(ts || Date.now()).toISOString(),
+      ...(ad ? { adTitle: ad.title, adBody: ad.body, adUrl: ad.url, adSourceId: ad.sourceId, adPlatform: ad.app } : {}),
     };
+    if (ad) {
+      logger.info('📣 Chat started from an ad', { locationId: session.locationId, contactId: payload.contactId, adSourceId: ad.sourceId, platform: ad.app || 'unknown' });
+      this.ghl.addTags(session.locationId, payload.contactId, ['whatsapp ad']).catch(() => {});
+    }
     if (fromMe) {
       this.workflows.fireTrigger(TRIGGERS.PHONE_REPLY, session.locationId, base).catch(() => {});
     } else {
@@ -395,12 +446,13 @@ class InboundService {
     if (info.media && !attachments.length) text = `${text ? `${text}\n` : ''}[${info.kind} could not be downloaded]`;
     // Inbound: prefix with the sender so the CRM thread shows who said what. Phone replies are ours.
     const body = fromMe ? text : text ? `*${sender.name}*: ${text}` : `*${sender.name}*`;
+    const crmBody = withDecorations(body, crmDecorations(doc, { ad: null, fromMe }));
 
     const providerId = await this._providerId(session.locationId);
     const payload = {
       conversationProviderId: providerId,
       contactId: mapping.ghlContactId,
-      ...(body ? { message: body } : {}),
+      ...(crmBody ? { message: crmBody } : {}),
       ...(attachments.length ? { attachments } : {}),
       altId: msg.key.id,
       ...(ts ? { date: new Date(ts).toISOString() } : {}),
@@ -488,4 +540,4 @@ class InboundService {
   }
 }
 
-module.exports = { InboundService, describe };
+module.exports = { InboundService, describe, extractAd, crmDecorations, withDecorations };

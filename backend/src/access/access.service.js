@@ -29,9 +29,19 @@ class AccessService {
   }
 
   async updateSettings(companyId, patch, updatedBy) {
-    const allowed = ['accessMode', 'allowSelfConnect', 'allowAccessRequests', 'defaultNumberLimit', 'defaultMinDelayMs', 'defaultDailyLimit'];
+    const allowed = ['accessMode', 'allowSelfConnect', 'allowAccessRequests', 'defaultNumberLimit', 'defaultMinDelayMs', 'defaultDailyLimit', 'alertEmails'];
     const $set = { updatedBy };
     for (const k of allowed) if (k in patch) $set[k] = patch[k];
+    if ('alertEmails' in $set) {
+      const list = [...new Set((Array.isArray($set.alertEmails) ? $set.alertEmails : []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+      const bad = list.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || e.length > 200);
+      if (bad || list.length > 10) {
+        const err = new Error(bad ? `“${bad}” isn’t a valid email address` : 'Up to 10 alert email addresses');
+        err.statusCode = 400;
+        throw err;
+      }
+      $set.alertEmails = list;
+    }
     if ($set.accessMode && !['all', 'selected'].includes($set.accessMode)) {
       const err = new Error('accessMode must be "all" or "selected"');
       err.statusCode = 400;

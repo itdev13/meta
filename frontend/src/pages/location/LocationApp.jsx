@@ -6,6 +6,7 @@ import { Banner, Button, EmptyState, Field, KpiGrid, KpiSkeleton, KpiTile, PageH
 import { Icon } from '../../components/icons';
 import NumbersPanel from '../../components/NumbersPanel';
 import NumberSelectionPanel from '../../components/NumberSelectionPanel';
+import AlertsPanel from '../../components/AlertsPanel';
 import ActivityFeed from '../../components/ActivityFeed';
 import ConnectNumberModal from '../../components/ConnectNumberModal';
 import AutomationsPanel from './AutomationsPanel';
@@ -151,6 +152,9 @@ export default function LocationApp({ user }) {
                     setFeedKey((k) => k + 1);
                   }}
                 />
+                <div className="al-mount">
+                  <AlertsPanel locationId={user.locationId} />
+                </div>
                 {numbers.length >= 2 && (
                   <div className="nm-selection-mount">
                     <NumberSelectionPanel locationId={user.locationId} numbers={numbers} />

@@ -60,6 +60,9 @@ const WaSessionSchema = new mongoose.Schema(
       missedCallReply: { type: Boolean, default: false },
       missedCallMessage: { type: String, default: 'Sorry we missed your call! Reply here and we will get back to you shortly.' },
       autoRejectCalls: { type: Boolean, default: false },
+      // feature: inbound details — append "Received on WhatsApp #n" / Click-to-WhatsApp ad details
+      receivedOnTag: { type: Boolean, default: false },
+      adDetails: { type: Boolean, default: true },
       minDelayMs: { type: Number, default: null },
       dailyLimit: { type: Number, default: null },
     },
@@ -77,6 +80,14 @@ const WaSessionSchema = new mongoose.Schema(
     lastDisconnectAt: { type: Date },
     lastDisconnectCode: { type: Number },
     lastError: { type: String, default: '' },
+    // feature: alerts — the open outage incident (one alert per outage, then capped reminders)
+    alert: {
+      open: { type: Boolean, default: false },
+      reason: { type: String, default: '' },
+      openedAt: { type: Date },
+      lastSentAt: { type: Date },
+      reminders: { type: Number, default: 0 },
+    },
 
     // Single-owner lease so two server instances never run the same socket.
     ownerId: { type: String, default: null },

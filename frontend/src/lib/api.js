@@ -73,6 +73,9 @@ export const loc = (locationId) => {
     activity: (q = {}) => api.get(`${base}/activity?${new URLSearchParams(q)}`),
     automations: () => api.get(`${base}/automations`),
     requestAccess: (message) => api.post(`${base}/access-request`, { message }),
+    alerts: () => api.get(`${base}/alerts`),
+    saveAlerts: (body) => api.put(`${base}/alerts`, body),
+    testAlert: () => api.post(`${base}/alerts/test`),
   };
 };
 

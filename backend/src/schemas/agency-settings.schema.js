@@ -22,6 +22,8 @@ const AgencySettingsSchema = new mongoose.Schema(
     // Sending pace defaults for new numbers (anti-ban).
     defaultMinDelayMs: { type: Number, default: null },
     defaultDailyLimit: { type: Number, default: null },
+    // feature: alerts — copied on disconnect alerts for every sub-account (unless it opts out)
+    alertEmails: { type: [String], default: [] },
     updatedBy: { type: String, default: '' },
   },
   { collection: 'agency_settings', timestamps: true },

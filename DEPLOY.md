@@ -84,7 +84,7 @@ The app reads the logged-in user's context and shows either the agency console o
 
 | Key | Name shown in GHL | Payload fields to declare |
 |---|---|---|
-| `whatsapp_message_received` | WhatsApp message received | message fields |
+| `whatsapp_message_received` | WhatsApp message received | message fields + `adTitle, adBody, adUrl, adSourceId, adPlatform` (filled when the chat started from a Click-to-WhatsApp ad) |
 | `whatsapp_new_contact` | New WhatsApp contact | message fields |
 | `whatsapp_media_received` | WhatsApp media received | message fields |
 | `whatsapp_phone_reply` | Reply sent from phone | message fields |

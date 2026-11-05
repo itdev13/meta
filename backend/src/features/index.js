@@ -7,7 +7,7 @@ const path = require('path');
  * They mount their own routes, register pipeline hooks and workflow actions. Order matters for
  * hooks: consent runs before rules (so STOP is consumed before keyword auto-replies).
  */
-const ORDER = ['consent', 'rules', 'groups', 'analytics', 'proxy', 'share', 'routing', 'calls'];
+const ORDER = ['consent', 'rules', 'groups', 'analytics', 'proxy', 'share', 'routing', 'calls', 'alerts'];
 
 function loadFeatures(ctx) {
   const loaded = [];

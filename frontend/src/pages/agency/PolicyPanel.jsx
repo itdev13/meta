@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { agency } from '../../lib/api';
 import { Banner, Button, Field, Toggle, useAction } from '../../components/ui';
 import { Icon } from '../../components/icons';
+import { EMAIL_RE, ListEditor } from '../../components/AlertsPanel';
 
 export default function PolicyPanel({ settings, isAdmin, counts, onSaved }) {
   const act = useAction();
@@ -12,6 +13,7 @@ export default function PolicyPanel({ settings, isAdmin, counts, onSaved }) {
     defaultNumberLimit: settings.defaultNumberLimit ?? '',
     defaultMinDelayMs: settings.defaultMinDelayMs ?? '',
     defaultDailyLimit: settings.defaultDailyLimit ?? '',
+    alertEmails: settings.alertEmails || [],
   });
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setS((x) => ({ ...x, [k]: v }));
@@ -22,7 +24,8 @@ export default function PolicyPanel({ settings, isAdmin, counts, onSaved }) {
     s.allowAccessRequests !== (settings.allowAccessRequests !== false) ||
     num(s.defaultNumberLimit) !== (settings.defaultNumberLimit ?? null) ||
     num(s.defaultMinDelayMs) !== (settings.defaultMinDelayMs ?? null) ||
-    num(s.defaultDailyLimit) !== (settings.defaultDailyLimit ?? null);
+    num(s.defaultDailyLimit) !== (settings.defaultDailyLimit ?? null) ||
+    s.alertEmails.join('|') !== (settings.alertEmails || []).join('|');
 
   const save = async () => {
     setSaving(true);
@@ -35,6 +38,7 @@ export default function PolicyPanel({ settings, isAdmin, counts, onSaved }) {
           defaultNumberLimit: num(s.defaultNumberLimit),
           defaultMinDelayMs: num(s.defaultMinDelayMs),
           defaultDailyLimit: num(s.defaultDailyLimit),
+          alertEmails: s.alertEmails,
         }),
       'Agency settings saved',
     );
@@ -135,6 +139,27 @@ export default function PolicyPanel({ settings, isAdmin, counts, onSaved }) {
               <input className="input tnum" type="number" min={1} style={{ width: 220 }} value={s.defaultDailyLimit} disabled={!isAdmin} onChange={(e) => set('defaultDailyLimit', e.target.value)} placeholder="1000" />
             </Field>
           </div>
+        </section>
+
+        <section className="card card-pad">
+          <div className="section-title">Disconnect alerts</div>
+          <p className="muted" style={{ margin: '0 0 14px', maxWidth: 640 }}>
+            These addresses get an email whenever a number in any sub-account logs out, is restricted, or stays offline. Each sub-account can add
+            its own recipients on its Numbers tab, and can choose not to copy the agency.
+          </p>
+          <fieldset disabled={!isAdmin} style={{ border: 0, padding: 0, margin: 0, maxWidth: 560 }}>
+            <ListEditor
+              label="Agency alert emails"
+              icon="mail"
+              placeholder="ops@youragency.com"
+              hint="Up to 10 addresses. Press Enter after each."
+              max={10}
+              value={s.alertEmails}
+              onChange={(v) => set('alertEmails', v)}
+              normalize={(v) => v.trim().toLowerCase()}
+              validate={(v) => (EMAIL_RE.test(v) ? '' : 'That doesn’t look like an email address.')}
+            />
+          </fieldset>
         </section>
       </div>
     </>

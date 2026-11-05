@@ -415,6 +415,8 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
     proxyCountry: initial.proxyCountry || '',
     callLogging: initial.callLogging !== false,
     missedCallMessage: initial.missedCallMessage || '',
+    receivedOnTag: !!initial.receivedOnTag,
+    adDetails: initial.adDetails !== false,
   }));
   const [section, setSection] = useState('general');
   const [busy, setBusy] = useState(false);
@@ -437,7 +439,12 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
   const dirty = {
     general: label !== (n.label || ''),
     routing: !sameList(assigned, (n.assignedUserIds || []).map(String)),
-    inbound: !!s.doNotCreateContacts !== !!initial.doNotCreateContacts || !!s.disableIncoming !== !!initial.disableIncoming || !sameList(s.blacklist, initial.blacklist || []),
+    inbound:
+      !!s.doNotCreateContacts !== !!initial.doNotCreateContacts ||
+      !!s.disableIncoming !== !!initial.disableIncoming ||
+      !sameList(s.blacklist, initial.blacklist || []) ||
+      s.receivedOnTag !== !!initial.receivedOnTag ||
+      s.adDetails !== (initial.adDetails !== false),
     sync: SYNC_ROWS.some(([k]) => !!s[k] !== !!initial[k]) || !!s.syncGroups !== !!initial.syncGroups || s.groupMode !== (initial.groupMode || 'all'),
     calls:
       s.callLogging !== (initial.callLogging !== false) ||
@@ -469,6 +476,8 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
       groupMode: s.groupMode === 'selected' ? 'selected' : 'all',
       doNotCreateContacts: !!s.doNotCreateContacts,
       disableIncoming: !!s.disableIncoming,
+      receivedOnTag: !!s.receivedOnTag,
+      adDetails: !!s.adDetails,
       blacklist: s.blacklist,
       proxyCountry: s.proxyCountry || '',
       callLogging: !!s.callLogging,
@@ -619,6 +628,18 @@ function NumberSettings({ n, locationId, isAgency, users, onClose, onSave, onApp
                   on={!!s.disableIncoming}
                   onChange={(v) => set('disableIncoming', v)}
                   warn
+                />
+                <SettingRow
+                  t="Show which number received it"
+                  d={`Adds “↘ Received on WhatsApp #${n.index || 1}${n.phoneNumber ? ` (${n.phoneNumber})` : ''}” under each incoming message, so your team knows which line the customer wrote to.`}
+                  on={!!s.receivedOnTag}
+                  onChange={(v) => set('receivedOnTag', v)}
+                />
+                <SettingRow
+                  t="Add ad details"
+                  d="When a chat starts from a Facebook or Instagram Click-to-WhatsApp ad, the ad’s title, text and link are added to the first message and the contact is tagged “whatsapp ad”."
+                  on={!!s.adDetails}
+                  onChange={(v) => set('adDetails', v)}
                 />
               </div>
               {s.disableIncoming && (

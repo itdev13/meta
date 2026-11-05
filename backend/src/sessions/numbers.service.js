@@ -4,7 +4,7 @@ const { clearAuthState } = require('../whatsapp/mongo-auth-state');
 const { digits } = require('../whatsapp/jid');
 
 const TERMINAL = ['logged_out', 'banned', 'replaced', 'qr_expired'];
-const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups', 'doNotCreateContacts', 'disableIncoming', 'callLogging', 'missedCallReply', 'autoRejectCalls'];
+const USER_SETTINGS = ['markRead', 'typingSimulation', 'syncPhoneReplies', 'syncGroups', 'doNotCreateContacts', 'disableIncoming', 'callLogging', 'missedCallReply', 'autoRejectCalls', 'receivedOnTag', 'adDetails'];
 const AGENCY_SETTINGS = ['minDelayMs', 'dailyLimit'];
 
 function httpError(message, statusCode, code) {
@@ -55,6 +55,8 @@ class NumbersService {
         missedCallReply: !!doc.settings?.missedCallReply,
         missedCallMessage: doc.settings?.missedCallMessage ?? '',
         autoRejectCalls: !!doc.settings?.autoRejectCalls,
+        receivedOnTag: !!doc.settings?.receivedOnTag,
+        adDetails: doc.settings?.adDetails !== false,
         minDelayMs: doc.settings?.minDelayMs ?? null,
         dailyLimit: doc.settings?.dailyLimit ?? null,
       },
