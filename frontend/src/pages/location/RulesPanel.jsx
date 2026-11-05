@@ -14,7 +14,7 @@ import {
   variablesIn,
 } from '../../lib/api-rules';
 import { formatPhone, plural, timeAgo } from '../../lib/format';
-import { Banner, Button, Confirm, Empty, Field, IconButton, Menu, Modal, Pill, Segmented, Skeleton, Toggle, useAction, useToast } from '../../components/ui';
+import { Banner, Button, Confirm, Empty, EmptyState, Field, IconButton, KpiGrid, KpiSkeleton, KpiTile, Menu, Modal, PageHeader, Pill, Segmented, Skeleton, Toggle, useAction, useToast } from '../../components/ui';
 import { Icon } from '../../components/icons';
 
 // ── Constants & helpers ───────────────────────────────────────────
@@ -182,11 +182,9 @@ export default function RulesPanel({ locationId, numbers = [] }) {
 
   if (error && !data) {
     return (
-      <div className="card">
-        <Empty icon="alert" title="Couldn’t load auto-replies" action={<Button onClick={load}>Try again</Button>}>
-          {error}
-        </Empty>
-      </div>
+      <EmptyState icon="alert" tone="err" title="Couldn’t load auto-replies" action={<Button icon="refresh" onClick={load}>Try again</Button>}>
+        {error}
+      </EmptyState>
     );
   }
 
@@ -196,17 +194,16 @@ export default function RulesPanel({ locationId, numbers = [] }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Auto-replies</h1>
-          <p>Answer common messages instantly, tag contacts and start workflows from a keyword — plus an away message for after hours and a welcome for first-time customers.</p>
-        </div>
-        <div className="row wrap">
+      <PageHeader
+        eyebrow="Automation"
+        title="Auto-replies"
+        description="Answer common messages instantly, tag contacts and start workflows from a keyword — plus an away message for after hours and a welcome for first-time customers."
+        actions={
           <Button icon="refresh" loading={refreshing} onClick={refresh}>
             Refresh
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {data ? <RuleStats data={data} /> : <StatsSkeleton />}
 
@@ -269,69 +266,52 @@ function RuleStats({ data }) {
   const totals = stats?.totals || { rules: 0, away: 0, welcome: 0 };
   const top = [...(stats?.rules || [])].sort((a, b) => b.hits30d - a.hits30d)[0];
   return (
-    <div className="stats">
-      <div className="card stat">
-        <div className="k">
-          <Icon name="zap" size={14} />
-          Active rules
-        </div>
-        <div className="v">
-          {active}
-          <small>/ {rules.length}</small>
-        </div>
-        <div className="h">{rules.length ? 'Checked top to bottom' : 'No rules yet'}</div>
-      </div>
-      <div className="card stat">
-        <div className="k">
-          <Icon name="bolt" size={14} />
-          Rules fired · 30d
-        </div>
-        <div className="v">{totals.rules.toLocaleString()}</div>
-        <div className="h ar-ellipsis">{top?.hits30d ? `Top: ${top.name} (${top.hits30d.toLocaleString()})` : 'Keyword matches from customers'}</div>
-      </div>
-      <div className="card stat">
-        <div className="k">
-          <Icon name="pause" size={14} />
-          Away replies · 30d
-        </div>
-        <div className="v">{totals.away.toLocaleString()}</div>
-        <div className="h">
-          {hours?.enabled ? (
+    <KpiGrid cols={4}>
+      <KpiTile
+        label="Active rules"
+        icon="zap"
+        tone="brand"
+        value={active}
+        unit={`/ ${rules.length}`}
+        meter={rules.length ? active / rules.length : 0}
+        hint={rules.length ? 'Checked top to bottom' : 'No rules yet'}
+      />
+      <KpiTile
+        label="Rules fired · 30d"
+        icon="bolt"
+        tone="violet"
+        value={totals.rules.toLocaleString()}
+        hint={top?.hits30d ? `Top: ${top.name} (${top.hits30d.toLocaleString()})` : 'Keyword matches from customers'}
+      />
+      <KpiTile
+        label="Away replies · 30d"
+        icon="clock"
+        tone="amber"
+        value={totals.away.toLocaleString()}
+        hint={
+          hours?.enabled ? (
             <span className={`ar-dotline ${hours.open ? 'open' : 'closed'}`}>
               <span className="ar-dot" />
               {hours.open ? 'Open now' : 'Closed now — away is replying'}
             </span>
           ) : (
             'Away message is off'
-          )}
-        </div>
-      </div>
-      <div className="card stat">
-        <div className="k">
-          <Icon name="star" size={14} />
-          Welcomes · 30d
-        </div>
-        <div className="v">{totals.welcome.toLocaleString()}</div>
-        <div className="h">{settings?.welcome?.enabled ? 'Greeting new contacts' : 'Welcome message is off'}</div>
-      </div>
-    </div>
+          )
+        }
+      />
+      <KpiTile
+        label="Welcomes · 30d"
+        icon="star"
+        tone="info"
+        value={totals.welcome.toLocaleString()}
+        hint={settings?.welcome?.enabled ? 'Greeting new contacts' : 'Welcome message is off'}
+      />
+    </KpiGrid>
   );
 }
 
 function StatsSkeleton() {
-  return (
-    <div className="stats">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="card stat">
-          <Skeleton h={12} w={90} />
-          <div style={{ height: 12 }} />
-          <Skeleton h={26} w={60} />
-          <div style={{ height: 8 }} />
-          <Skeleton h={10} w={130} />
-        </div>
-      ))}
-    </div>
-  );
+  return <KpiSkeleton count={4} />;
 }
 
 function ListSkeleton() {

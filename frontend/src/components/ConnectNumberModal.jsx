@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { loc } from '../lib/api';
 import { useLiveStatus } from '../lib/live';
 import { formatPhone } from '../lib/format';
-import { Button, Field, Modal, Segmented, Spinner, useToast } from './ui';
+import { Button, Field, Modal, Spinner, useToast } from './ui';
 import { Icon, WaGlyph } from './icons';
 
 const QR_REFRESH_S = 20;
@@ -102,14 +102,33 @@ export default function ConnectNumberModal({ locationId, locationName, relink, o
     <Modal title={title} subtitle={subtitle} onClose={close} wide={step === 'linking'}>
       {step === 'setup' && (
         <div className="stack" style={{ gap: 18 }}>
-          <Segmented
-            value={method}
-            onChange={setMethod}
-            options={[
-              { value: 'qr', label: 'Scan QR code', icon: 'qr' },
-              { value: 'code', label: 'Use phone number', icon: 'key' },
-            ]}
-          />
+          <div className="lc-methods" role="radiogroup" aria-label="How to link">
+            {[
+              { value: 'qr', icon: 'qr', t: 'Scan a QR code', d: 'Fastest — point the phone at this screen.', badge: 'Recommended' },
+              { value: 'code', icon: 'key', t: 'Use a pairing code', d: 'Type an 8-character code into WhatsApp instead.' },
+            ].map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                role="radio"
+                aria-checked={method === o.value}
+                className={`lc-method ${method === o.value ? 'on' : ''}`}
+                onClick={() => setMethod(o.value)}
+              >
+                <span className="lc-method-ic">
+                  <Icon name={o.icon} size={18} />
+                </span>
+                <span className="lc-method-txt">
+                  <span className="lc-method-t">
+                    {o.t}
+                    {o.badge && <span className="lc-method-badge">{o.badge}</span>}
+                  </span>
+                  <span className="lc-method-d">{o.d}</span>
+                </span>
+                <span className="lc-method-radio" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
           <Field label="Label (optional)" hint="Shown to your team, e.g. “Sales line” or “Support”.">
             <input className="input" value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} placeholder="Sales line" />
           </Field>
@@ -118,11 +137,9 @@ export default function ConnectNumberModal({ locationId, locationName, relink, o
               <input className="input mono" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 415 555 0132" inputMode="tel" />
             </Field>
           )}
-          <div className="banner warn" style={{ margin: 0 }}>
-            <div className="ic">
-              <Icon name="shield" size={17} />
-            </div>
-            <div className="d">
+          <div className="lc-safety">
+            <Icon name="shield" size={15} />
+            <div>
               Use a number you already chat from. WhatsApp can restrict numbers that send bulk or unsolicited messages — sends are paced
               automatically to keep your number safe.
             </div>
@@ -140,8 +157,12 @@ export default function ConnectNumberModal({ locationId, locationName, relink, o
       )}
 
       {step === 'linking' && (
-        <div className="connect-grid">
-          <div className="stack" style={{ gap: 18 }}>
+        <div className="connect-grid lc-connect">
+          <div className="stack lc-connect-steps" style={{ gap: 18 }}>
+            <div className="lc-connect-kicker">
+              <Icon name="smartphone" size={14} />
+              On the phone
+            </div>
             <ol className="connect-steps">
               <li>
                 <span>
@@ -170,15 +191,20 @@ export default function ConnectNumberModal({ locationId, locationName, relink, o
                 </li>
               )}
             </ol>
-            <div className="row muted" style={{ fontSize: 12.5 }}>
+            <div className="lc-connect-note">
               <Icon name="lock" size={14} /> Your phone stays the primary device. You can unlink anytime from WhatsApp or here.
             </div>
           </div>
 
-          <div>
+          <div className="lc-qr-col">
             {method === 'qr' ? (
               <>
-                <div className="qr-frame">
+                <div className={`qr-frame lc-qr ${s?.qr && s.status === 'qr' ? 'ready' : ''}`}>
+                  <span className="lc-qr-corner tl" aria-hidden="true" />
+                  <span className="lc-qr-corner tr" aria-hidden="true" />
+                  <span className="lc-qr-corner bl" aria-hidden="true" />
+                  <span className="lc-qr-corner br" aria-hidden="true" />
+                  {s?.qr && s.status === 'qr' && <span className="lc-qr-scan" aria-hidden="true" />}
                   {s?.qr && s.status === 'qr' ? (
                     <>
                       <img src={s.qr} alt="WhatsApp link QR code" />
@@ -192,18 +218,21 @@ export default function ConnectNumberModal({ locationId, locationName, relink, o
                   <LinkVeil s={s} onRetry={start} busy={busy} waitingLabel="Generating QR code…" />
                 </div>
                 {s?.status === 'qr' && (
-                  <>
+                  <div className="lc-qr-foot">
                     <div className="qr-timer">
                       <div style={{ width: `${100 - (qrAge / QR_REFRESH_S) * 100}%` }} />
                     </div>
-                    <div className="muted" style={{ fontSize: 12, marginTop: 6, textAlign: 'center' }}>
-                      The code refreshes automatically
+                    <div className="lc-qr-status">
+                      <span className="lc-live-dot" aria-hidden="true" />
+                      Waiting for scan
+                      <span className="lc-qr-sep" />
+                      <span className="tnum">{qrAge >= QR_REFRESH_S ? 'Refreshing…' : `New code in ${QR_REFRESH_S - qrAge}s`}</span>
                     </div>
-                  </>
+                  </div>
                 )}
               </>
             ) : (
-              <div className="card card-pad" style={{ width: 320, maxWidth: '100%', minHeight: 220, position: 'relative', display: 'grid', placeItems: 'center' }}>
+              <div className="card card-pad lc-pair" style={{ width: 320, maxWidth: '100%', minHeight: 220, position: 'relative', display: 'grid', placeItems: 'center' }}>
                 {s?.pairingCode && s.status === 'pairing' ? (
                   <div style={{ textAlign: 'center' }}>
                     <div className="section-title">Your pairing code</div>
@@ -299,17 +328,25 @@ function Linked({ s, locationId, onClose }) {
     }
   };
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div className="success-burst">
-        <Icon name="check" size={36} stroke={2.6} />
+    <div className="lc-done" style={{ textAlign: 'center' }}>
+      <div className="lc-done-art" aria-hidden="true">
+        <span className="lc-done-ring" />
+        <span className="lc-done-ring r2" />
+        <div className="success-burst">
+          <Icon name="check" size={36} stroke={2.6} />
+        </div>
       </div>
       <div style={{ fontSize: 20, fontWeight: 750, letterSpacing: '-0.02em' }}>{formatPhone(s?.phoneNumber) || 'WhatsApp connected'}</div>
       {s?.waName && <div className="muted">{s.waName}</div>}
       <p className="muted" style={{ margin: '12px auto 20px', maxWidth: 400 }}>
         New WhatsApp messages now appear in Conversations, and replies sent there go out from this number.
       </p>
-      <div className="card card-pad" style={{ textAlign: 'left', background: 'var(--surface-2)' }}>
-        <div style={{ fontWeight: 650, marginBottom: 8 }}>Send a test message</div>
+      <div className="card card-pad lc-test" style={{ textAlign: 'left', background: 'var(--surface-2)' }}>
+        <div className="lc-test-t">
+          <Icon name="send" size={14} />
+          Send a test message
+          <span className="muted">· optional</span>
+        </div>
         <div className="row">
           <input className="input mono grow" placeholder="+1 415 555 0132" value={to} onChange={(e) => setTo(e.target.value)} inputMode="tel" />
           <Button icon="send" loading={sending} disabled={!to.trim()} onClick={sendTest}>

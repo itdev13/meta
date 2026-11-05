@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Icon } from './icons';
-import { initials } from '../lib/format';
+import { initials, timeAgo } from '../lib/format';
 
 export function Button({ variant = 'secondary', size, icon, loading, children, className = '', ...rest }) {
   return (
@@ -91,6 +91,138 @@ export function Empty({ icon = 'inbox', title, children, action }) {
       {children && <div style={{ maxWidth: 380, margin: '0 auto' }}>{children}</div>}
       {action && <div style={{ marginTop: 16 }}>{action}</div>}
     </div>
+  );
+}
+
+// ── Page-level building blocks (sub-account pages; `lc-` styles) ──
+
+/**
+ * Page header: eyebrow · title · one-line description on the left; actions (and an optional
+ * meta line under them, e.g. "Updated 2m ago · Refresh") right-aligned.
+ */
+export function PageHeader({ eyebrow, title, description, actions, meta }) {
+  return (
+    <header className="lc-head">
+      <div className="lc-head-text">
+        {eyebrow && <div className="lc-eyebrow">{eyebrow}</div>}
+        <h1>{title}</h1>
+        {description && <p>{description}</p>}
+      </div>
+      {(actions || meta) && (
+        <div className="lc-head-side">
+          {actions && <div className="lc-head-actions">{actions}</div>}
+          {meta && <div className="lc-head-meta">{meta}</div>}
+        </div>
+      )}
+    </header>
+  );
+}
+
+/** "● Updated 2m ago  ⟳" — freshness line with an inline refresh. */
+export function SyncMeta({ at, loading, onRefresh, label = 'Updated' }) {
+  return (
+    <span className={`lc-sync ${loading ? 'is-loading' : ''}`}>
+      <span className="lc-sync-dot" aria-hidden="true" />
+      <span title={at ? new Date(at).toLocaleString() : undefined}>{loading ? 'Updating…' : at ? `${label} ${timeAgo(at)}` : 'Not loaded yet'}</span>
+      {onRefresh && (
+        <button type="button" className="lc-sync-btn" onClick={onRefresh} disabled={loading} aria-label="Refresh" title="Refresh">
+          <Icon name="refresh" size={13} className={loading ? 'lc-spin' : undefined} />
+          <span>Refresh</span>
+        </button>
+      )}
+    </span>
+  );
+}
+
+/** KPI tile with an icon chip (same language as the agency console). tone: brand | teal | info | violet | amber | calm | alert */
+export function KpiTile({ label, value, unit, icon, hint, tone = 'brand', meter, aside, onClick, title }) {
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag type={onClick ? 'button' : undefined} className={`ag-kpi lc-kpi ${tone} ${onClick ? 'clickable' : ''}`} onClick={onClick || undefined} title={title}>
+      <div className="ag-kpi-top">
+        <span className="ag-kpi-ic">
+          <Icon name={icon} size={15} />
+        </span>
+        <span className="ag-kpi-k">{label}</span>
+        {onClick && <Icon name="chevron" size={14} className="ag-kpi-go" />}
+      </div>
+      <div className="lc-kpi-row">
+        <div className="ag-kpi-v tnum">
+          {value}
+          {unit && <small>{unit}</small>}
+        </div>
+        {aside}
+      </div>
+      {meter != null && (
+        <div className="ag-kpi-meter" aria-hidden="true">
+          <span style={{ width: `${Math.round(Math.min(1, Math.max(0, meter)) * 100)}%` }} />
+        </div>
+      )}
+      {hint && <div className="ag-kpi-h">{hint}</div>}
+    </Tag>
+  );
+}
+
+export function KpiGrid({ children, cols }) {
+  return <div className={`lc-kpis ${cols ? `cols-${cols}` : ''}`}>{children}</div>;
+}
+
+export function KpiSkeleton({ count = 4 }) {
+  const sk = (style) => <span className="boot-sk" style={style} />;
+  return (
+    <div className={`lc-kpis cols-${count}`} aria-hidden="true">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="ag-kpi sk">
+          <div className="ag-kpi-top">
+            {sk({ width: 30, height: 30, borderRadius: 9 })}
+            {sk({ width: '46%', height: 11 })}
+          </div>
+          {sk({ width: 64, height: 26, marginTop: 14, borderRadius: 7 })}
+          {sk({ width: '72%', height: 10, marginTop: 12 })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Refined empty state: stacked-tile art, title, copy and an optional action. */
+export function EmptyState({ icon = 'inbox', title, children, action, tone = 'brand', flat }) {
+  return (
+    <div className={`lc-empty ${flat ? 'flat' : ''} tone-${tone}`}>
+      <div className="ag-empty-art" aria-hidden="true">
+        <span className="ag-empty-tile back" />
+        <span className="ag-empty-tile mid" />
+        <span className="ag-empty-tile front">
+          <Icon name={icon} size={22} />
+        </span>
+      </div>
+      <h4>{title}</h4>
+      {children && <p>{children}</p>}
+      {action && <div className="lc-empty-action">{action}</div>}
+    </div>
+  );
+}
+
+/** Section card with an icon-chip header. */
+export function SectionCard({ title, sub, icon, actions, children, flush, className = '', tone = 'brand' }) {
+  return (
+    <section className={`card lc-card ${flush ? 'flush' : ''} ${className}`}>
+      {(title || actions) && (
+        <header className="lc-card-head">
+          {icon && (
+            <span className={`lc-card-ic tone-${tone}`}>
+              <Icon name={icon} size={15} />
+            </span>
+          )}
+          <div className="lc-card-title">
+            {title && <h3>{title}</h3>}
+            {sub && <p>{sub}</p>}
+          </div>
+          {actions && <div className="lc-card-actions">{actions}</div>}
+        </header>
+      )}
+      {children}
+    </section>
   );
 }
 

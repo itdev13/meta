@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Banner, Button, Empty, Pill, Segmented, Skeleton } from '../../components/ui';
+import { Banner, Button, EmptyState, PageHeader, Pill, Segmented, Skeleton, SyncMeta } from '../../components/ui';
 import { Icon } from '../../components/icons';
 import { BarList, KpiStat, Meter, SegmentedBar, TimeSeriesChart, Heatmap } from '../../components/charts';
 import { analytics, fmtDay, fmtDuration, fmtInt, fmtPct } from '../../lib/api-analytics';
@@ -117,7 +117,7 @@ function numberName(n) {
 }
 
 /** Sub-account analytics. Props: locationId, numbers (from the overview). */
-export default function AnalyticsPanel({ locationId, numbers = [] }) {
+export default function AnalyticsPanel({ locationId, numbers = [], onGoNumbers }) {
   const [range, setRange] = useState('30d');
   const [sessionId, setSessionId] = useState('');
   const { data, loading, error, reload } = useAnalytics(() => analytics.location(locationId, { range, sessionId }), [locationId, range, sessionId]);
@@ -125,65 +125,51 @@ export default function AnalyticsPanel({ locationId, numbers = [] }) {
   const sparkIn = useMemo(() => data?.series.map((d) => d.inbound) || [], [data]);
   const sparkOut = useMemo(() => data?.series.map((d) => d.outbound) || [], [data]);
 
-  const controls = (
-    <div className="an-controls">
-      <Segmented value={range} onChange={setRange} options={RANGES} />
-      {numbers.length > 1 && (
-        <label className="an-select">
-          <Icon name="phone" size={14} />
-          <select className="select" value={sessionId} onChange={(e) => setSessionId(e.target.value)} aria-label="Filter by number">
-            <option value="">All numbers</option>
-            {numbers.map((n) => (
-              <option key={n.id} value={n.id}>
-                {numberName(n)}
-                {n.label && n.phoneNumber ? ` · ${formatPhone(n.phoneNumber)}` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <div className="grow" />
-      {data && (
-        <span className="an-updated">
-          {loading ? 'Updating…' : `Updated ${timeAgo(data.generatedAt)}`}
-        </span>
-      )}
-      <Button variant="ghost" size="sm" icon="refresh" onClick={reload} disabled={loading} aria-label="Refresh analytics">
-        Refresh
-      </Button>
-    </div>
-  );
-
   const head = (
-    <div className="page-head">
-      <div>
-        <h1>Analytics</h1>
-        <p>How your WhatsApp numbers perform: messages in and out, delivery, replies and how fast your team responds.</p>
-      </div>
-    </div>
+    <PageHeader
+      eyebrow="Performance"
+      title="Analytics"
+      description="How your WhatsApp numbers perform: messages in and out, delivery, replies and how fast your team responds."
+      actions={
+        <div className="an-controls">
+          {numbers.length > 1 && (
+            <label className="an-select">
+              <Icon name="phone" size={14} />
+              <select className="select" value={sessionId} onChange={(e) => setSessionId(e.target.value)} aria-label="Filter by number">
+                <option value="">All numbers</option>
+                {numbers.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {numberName(n)}
+                    {n.label && n.phoneNumber ? ` · ${formatPhone(n.phoneNumber)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <Segmented value={range} onChange={setRange} options={RANGES} />
+        </div>
+      }
+      meta={<SyncMeta at={data?.generatedAt} loading={loading} onRefresh={reload} />}
+    />
   );
 
   if (!data && loading) {
     return (
-      <>
+      <div className="lc-an">
         {head}
-        {controls}
         <AnalyticsSkeleton />
-      </>
+      </div>
     );
   }
 
   if (!data && error) {
     return (
-      <>
+      <div className="lc-an">
         {head}
-        {controls}
-        <div className="card">
-          <Empty icon="alert" title="Couldn’t load analytics" action={<Button onClick={reload} icon="refresh">Try again</Button>}>
-            {error.message}
-          </Empty>
-        </div>
-      </>
+        <EmptyState icon="alert" tone="err" title="Couldn’t load analytics" action={<Button onClick={reload} icon="refresh">Try again</Button>}>
+          {error.message}
+        </EmptyState>
+      </div>
     );
   }
 
@@ -192,9 +178,8 @@ export default function AnalyticsPanel({ locationId, numbers = [] }) {
   const words = RANGE_WORDS[data.range];
 
   return (
-    <>
+    <div className="lc-an">
       {head}
-      {controls}
       <div className={`an-wrap ${loading ? 'an-refreshing' : ''}`} aria-busy={loading}>
         {error && (
           <Banner tone="err" icon="alert" title="Couldn’t refresh — showing the last loaded figures">
@@ -203,30 +188,39 @@ export default function AnalyticsPanel({ locationId, numbers = [] }) {
         )}
 
         {isEmpty ? (
-          <div className="card">
-            <Empty icon="inbox" title={`No messages in the ${words}`}>
-              Once your linked numbers send or receive WhatsApp messages, volume, delivery, reply rate and response times show up here.
-              {numbers.length === 0 && ' Start by linking a number on the Numbers tab.'}
-            </Empty>
-          </div>
+          <AnalyticsGhost
+            title={`No messages in the ${words}`}
+            action={
+              numbers.length === 0 && onGoNumbers ? (
+                <Button variant="primary" icon="qr" onClick={onGoNumbers}>
+                  Link a number
+                </Button>
+              ) : null
+            }
+          >
+            Once your linked numbers send or receive WhatsApp messages, volume, delivery, reply rate and response times show up here.
+            {numbers.length === 0 && ' Start by linking a number on the Numbers tab.'}
+          </AnalyticsGhost>
         ) : (
           <>
             <SampleNote sample={data.sample} />
 
             <div className="an-kpis">
-              <KpiStat label="Messages in" icon="arrowIn" value={fmtInt(totals.inbound)} spark={sparkIn} sub={`${fmtInt(contacts.unique)} contacts · ${fmtInt(contacts.new)} new`} />
-              <KpiStat label="Messages out" icon="arrowOut" value={fmtInt(totals.outbound)} spark={sparkOut} sub={totals.failedOutbound ? `${fmtInt(totals.failedOutbound)} failed` : 'None failed'} tone={totals.failedOutbound ? 'warn' : ''} />
-              <KpiStat label="Delivery rate" icon="check" value={fmtPct(rates.delivery)} sub={<Meter value={rates.delivery} tone={rateTone(rates.delivery)} label="Delivery rate" />} />
-              <KpiStat label="Read rate" icon="message" value={fmtPct(rates.read)} sub={<Meter value={rates.read} tone="ok" label="Read rate" />} />
+              <KpiStat accent="info" label="Messages in" icon="arrowIn" value={fmtInt(totals.inbound)} spark={sparkIn} sub={`${fmtInt(contacts.unique)} contacts · ${fmtInt(contacts.new)} new`} />
+              <KpiStat accent="brand" label="Messages out" icon="arrowOut" value={fmtInt(totals.outbound)} spark={sparkOut} sub={totals.failedOutbound ? `${fmtInt(totals.failedOutbound)} failed` : 'None failed'} tone={totals.failedOutbound ? 'warn' : ''} />
+              <KpiStat accent="teal" label="Delivery rate" icon="check" value={fmtPct(rates.delivery)} sub={<Meter value={rates.delivery} tone={rateTone(rates.delivery)} label="Delivery rate" />} />
+              <KpiStat accent="teal" label="Read rate" icon="message" value={fmtPct(rates.read)} sub={<Meter value={rates.read} tone="ok" label="Read rate" />} />
               <KpiStat
+                accent="violet"
                 label="Reply rate"
                 icon="users"
                 value={fmtPct(rates.reply)}
                 sub={replies.conversations ? `${fmtInt(replies.replied)} of ${fmtInt(replies.conversations - replies.pending)} conversations` : 'No outbound conversations'}
               />
               <KpiStat
+                accent="amber"
                 label="First response"
-                icon="bolt"
+                icon="clock"
                 value={fmtDuration(responseTime.medianMs)}
                 unit={responseTime.medianMs != null ? 'median' : null}
                 sub={responseTime.p90Ms != null ? `90% within ${fmtDuration(responseTime.p90Ms)}` : 'No replies from your team yet'}
@@ -366,6 +360,70 @@ export default function AnalyticsPanel({ locationId, numbers = [] }) {
           </>
         )}
       </div>
-    </>
+    </div>
+  );
+}
+
+const GHOST_KPIS = [
+  ['Messages in', 'arrowIn', 'info'],
+  ['Messages out', 'arrowOut', 'brand'],
+  ['Delivery rate', 'check', 'teal'],
+  ['Read rate', 'message', 'teal'],
+  ['Reply rate', 'users', 'violet'],
+  ['First response', 'clock', 'amber'],
+];
+// A soft, believable silhouette for the preview chart (not data).
+const GHOST_IN = [8, 11, 9, 14, 12, 17, 15, 19, 16, 22, 20, 24, 21, 26];
+const GHOST_OUT = [5, 7, 6, 9, 10, 11, 9, 13, 12, 15, 13, 17, 16, 18];
+
+/** Empty analytics: a dimmed preview of the real layout behind a centred message. */
+export function AnalyticsGhost({ title, children, action }) {
+  const w = 640;
+  const h = 170;
+  const max = 28;
+  const path = (vals) => vals.map((v, i) => `${i ? 'L' : 'M'}${((i / (vals.length - 1)) * w).toFixed(1)},${(h - (v / max) * (h - 16)).toFixed(1)}`).join('');
+  return (
+    <div className="lc-ghost">
+      <div className="lc-ghost-preview" aria-hidden="true">
+        <div className="an-kpis">
+          {GHOST_KPIS.map(([k, icon, tone]) => (
+            <div key={k} className={`card kpi kpi-accent-${tone}`}>
+              <div className="kpi-top">
+                <span className="kpi-ic">
+                  <Icon name={icon} size={14} />
+                </span>
+                <span className="kpi-k">{k}</span>
+              </div>
+              <div className="kpi-row">
+                <div className="kpi-v">—</div>
+              </div>
+              <div className="lc-ghost-line" />
+            </div>
+          ))}
+        </div>
+        <div className="card an-card lc-ghost-chart">
+          <div className="lc-ghost-title">
+            <span className="lc-ghost-chip" />
+            <span className="lc-ghost-bar" style={{ width: 140 }} />
+          </div>
+          <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="lc-ghost-svg">
+            {[0.25, 0.5, 0.75, 1].map((f) => (
+              <line key={f} x1="0" x2={w} y1={h - f * (h - 16)} y2={h - f * (h - 16)} />
+            ))}
+            <path d={`${path(GHOST_IN)}L${w},${h}L0,${h}Z`} className="a1" />
+            <path d={path(GHOST_IN)} className="l1" />
+            <path d={path(GHOST_OUT)} className="l2" />
+          </svg>
+        </div>
+      </div>
+      <div className="lc-ghost-msg">
+        <div className="lc-ghost-msg-ic">
+          <Icon name="chart" size={22} />
+        </div>
+        <h4>{title}</h4>
+        <p>{children}</p>
+        {action && <div className="lc-empty-action">{action}</div>}
+      </div>
+    </div>
   );
 }

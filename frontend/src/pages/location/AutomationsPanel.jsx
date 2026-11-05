@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { loc } from '../../lib/api';
-import { Pill, Skeleton } from '../../components/ui';
+import { PageHeader, Pill, SectionCard, Skeleton } from '../../components/ui';
+import { plural } from '../../lib/format';
 import { Icon } from '../../components/icons';
 
 const TRIGGER_COPY = {
@@ -27,65 +28,131 @@ const ACTION_COPY = {
   whatsapp_opt_out_contact: ['Opt contact out', 'Unsubscribe the contact so no WhatsApp messages are sent to them.'],
 };
 
+const HOW = [
+  ['flow', 'Open Workflows', 'Automation → Workflows → create or edit a workflow.'],
+  ['search', 'Search “WhatsApp”', 'When adding a trigger or an action, type WhatsApp to filter.'],
+  ['bolt', 'Publish', 'Live workflows using a WhatsApp trigger are counted below.'],
+];
+
 export default function AutomationsPanel({ locationId }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     loc(locationId).automations().then(setData, () => setData({ triggers: {}, actions: {}, active: {} }));
   }, [locationId]);
 
+  const liveTotal = data ? Object.values(data.active || {}).reduce((n, v) => n + (Number(v) || 0), 0) : 0;
+  const liveTriggers = data ? Object.keys(TRIGGER_COPY).filter((k) => data.active?.[k]).length : 0;
+
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Automations</h1>
-          <p>
+      <PageHeader
+        eyebrow="Workflows"
+        title="Automations"
+        description={
+          <>
             Use these in <b>Automation → Workflows</b>. Search for “WhatsApp” when adding a trigger or an action.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          data ? (
+            <span className={`lc-live-chip ${liveTotal ? 'on' : ''}`}>
+              <span className="lc-live-dot" aria-hidden="true" />
+              {liveTotal ? `${plural(liveTotal, 'live workflow')} · ${plural(liveTriggers, 'trigger')} in use` : 'No live WhatsApp workflows yet'}
+            </span>
+          ) : null
+        }
+      />
+
+      <ol className="lc-how">
+        {HOW.map(([icon, t, d], i) => (
+          <li key={t}>
+            <span className="lc-how-n">{i + 1}</span>
+            <span className="lc-how-ic">
+              <Icon name={icon} size={15} />
+            </span>
+            <div className="grow">
+              <b>{t}</b>
+              <span>{d}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+
       {!data ? (
-        <div className="auto-grid">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} h={86} r={16} />
+        <div className="lc-auto-cols">
+          {[0, 1].map((c) => (
+            <section key={c} className="card lc-card">
+              <header className="lc-card-head">
+                <Skeleton h={30} w={30} r={9} />
+                <div className="grow stack" style={{ gap: 6 }}>
+                  <Skeleton h={13} w="30%" />
+                  <Skeleton h={10} w="55%" />
+                </div>
+              </header>
+              <div className="lc-auto-list">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="lc-auto-item">
+                    <Skeleton h={32} w={32} r={9} />
+                    <div className="grow stack" style={{ gap: 6 }}>
+                      <Skeleton h={12} w="45%" />
+                      <Skeleton h={10} w="80%" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       ) : (
-        <div className="stack" style={{ gap: 26 }}>
-          <section>
-            <div className="section-title">Triggers · {Object.keys(TRIGGER_COPY).length}</div>
-            <div className="auto-grid">
+        <div className="lc-auto-cols">
+          <SectionCard
+            icon="zap"
+            tone="violet"
+            title="Triggers"
+            sub="Start a workflow when something happens on WhatsApp"
+            actions={<span className="lc-count">{Object.keys(TRIGGER_COPY).length}</span>}
+            flush
+          >
+            <ul className="lc-auto-list">
               {Object.entries(TRIGGER_COPY).map(([key, [t, d]]) => (
-                <div key={key} className="card auto">
-                  <div className="ic trigger">
-                    <Icon name="zap" size={17} />
-                  </div>
+                <li key={key} className={`lc-auto-item ${data.active?.[key] ? 'is-live' : ''}`}>
+                  <span className="lc-auto-ic trigger">
+                    <Icon name="zap" size={15} />
+                  </span>
                   <div className="grow">
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <div className="t">{t}</div>
-                      {data.active?.[key] ? <Pill tone="ok">{data.active[key]} live</Pill> : null}
-                    </div>
-                    <div className="d">{d}</div>
+                    <div className="lc-auto-t">{t}</div>
+                    <div className="lc-auto-d">{d}</div>
                   </div>
-                </div>
+                  {data.active?.[key] ? (
+                    <Pill tone="ok" dot>
+                      {data.active[key]} live
+                    </Pill>
+                  ) : null}
+                </li>
               ))}
-            </div>
-          </section>
-          <section>
-            <div className="section-title">Actions · {Object.keys(ACTION_COPY).length}</div>
-            <div className="auto-grid">
+            </ul>
+          </SectionCard>
+          <SectionCard
+            icon="send"
+            title="Actions"
+            sub="Steps your workflows can take on WhatsApp"
+            actions={<span className="lc-count">{Object.keys(ACTION_COPY).length}</span>}
+            flush
+          >
+            <ul className="lc-auto-list">
               {Object.entries(ACTION_COPY).map(([key, [t, d]]) => (
-                <div key={key} className="card auto">
-                  <div className="ic action">
-                    <Icon name="send" size={16} />
+                <li key={key} className="lc-auto-item">
+                  <span className="lc-auto-ic action">
+                    <Icon name="send" size={14} />
+                  </span>
+                  <div className="grow">
+                    <div className="lc-auto-t">{t}</div>
+                    <div className="lc-auto-d">{d}</div>
                   </div>
-                  <div>
-                    <div className="t">{t}</div>
-                    <div className="d">{d}</div>
-                  </div>
-                </div>
+                </li>
               ))}
-            </div>
-          </section>
+            </ul>
+          </SectionCard>
         </div>
       )}
     </>

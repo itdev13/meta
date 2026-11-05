@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { consentApi } from '../../lib/api-consent';
 import { formatPhone, plural, timeAgo } from '../../lib/format';
-import { Avatar, Banner, Button, Drawer, Empty, Field, Modal, Pill, Segmented, Skeleton, Toggle, useAction, useToast } from '../../components/ui';
+import { Avatar, Banner, Button, Drawer, Empty, EmptyState, Field, KpiGrid, KpiSkeleton, KpiTile, Modal, PageHeader, Pill, Segmented, Skeleton, Toggle, useAction, useToast } from '../../components/ui';
 import { Icon } from '../../components/icons';
 
 const STATUS = {
@@ -100,30 +100,29 @@ export default function ConsentPanel({ locationId }) {
 
   if (error && !settings) {
     return (
-      <div className="card">
-        <Empty icon="alert" title="Couldn’t load consent" action={<Button onClick={load}>Try again</Button>}>
-          {error}
-        </Empty>
-      </div>
+      <EmptyState icon="alert" tone="err" title="Couldn’t load consent" action={<Button icon="refresh" onClick={load}>Try again</Button>}>
+        {error}
+      </EmptyState>
     );
   }
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>Consent &amp; compliance</h1>
-          <p>Who agreed to hear from you on WhatsApp, who unsubscribed, and the full audit trail behind every change.</p>
-        </div>
-        <div className="row wrap">
-          <Button icon="refresh" onClick={refreshAll}>
-            Refresh
-          </Button>
-          <Button icon="arrowOut" loading={exporting} onClick={doExport}>
-            Export CSV
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Compliance"
+        title="Consent & compliance"
+        description="Who agreed to hear from you on WhatsApp, who unsubscribed, and the full audit trail behind every change."
+        actions={
+          <>
+            <Button icon="refresh" onClick={refreshAll}>
+              Refresh
+            </Button>
+            <Button icon="arrowOut" loading={exporting} onClick={doExport}>
+              Export CSV
+            </Button>
+          </>
+        }
+      />
 
       {stats ? <ConsentStats stats={stats} /> : <StatsSkeleton />}
 
@@ -182,41 +181,34 @@ export default function ConsentPanel({ locationId }) {
 
 function ConsentStats({ stats }) {
   const { counts, optOuts30d, optIns30d, reached30d, optOutRate30d, series } = stats;
-  const rateTone = optOutRate30d == null ? '' : optOutRate30d >= 0.05 ? 'danger' : optOutRate30d >= 0.02 ? 'attention' : '';
+  const rateTone = optOutRate30d == null ? 'calm' : optOutRate30d >= 0.05 ? 'alert' : optOutRate30d >= 0.02 ? 'amber' : 'teal';
+  const total = (counts.opted_in || 0) + (counts.opted_out || 0) + (counts.unknown || 0);
   return (
-    <div className="stats">
-      <div className="card stat">
-        <div className="k">
-          <Icon name="check" size={14} />
-          Opted in
-        </div>
-        <div className="v">{counts.opted_in.toLocaleString()}</div>
-        <div className="h">{optIns30d ? `+${optIns30d.toLocaleString()} in the last 30 days` : 'Can receive messages'}</div>
-      </div>
-      <div className={`card stat ${counts.opted_out ? 'danger' : ''}`}>
-        <div className="k">
-          <Icon name="lock" size={14} />
-          Opted out
-        </div>
-        <div className="v">{counts.opted_out.toLocaleString()}</div>
-        <div className="h">Messages to them are blocked</div>
-      </div>
-      <div className={`card stat cs-rate ${rateTone}`}>
-        <div className="k">
-          <Icon name="sliders" size={14} />
-          Opt-out rate · 30d
-        </div>
-        <div className="cs-rate-row">
-          <div>
-            <div className="v">{pct(optOutRate30d)}</div>
-            <div className="h">
-              {reached30d ? `${plural(optOuts30d, 'opt-out')} of ${reached30d.toLocaleString()} messaged` : 'No messages sent yet'}
-            </div>
-          </div>
-          <Sparkline series={series} />
-        </div>
-      </div>
-    </div>
+    <KpiGrid cols={3}>
+      <KpiTile
+        label="Opted in"
+        icon="check"
+        tone="brand"
+        value={counts.opted_in.toLocaleString()}
+        meter={total ? counts.opted_in / total : 0}
+        hint={optIns30d ? `+${optIns30d.toLocaleString()} in the last 30 days` : 'Can receive messages'}
+      />
+      <KpiTile
+        label="Opted out"
+        icon="lock"
+        tone={counts.opted_out ? 'alert' : 'calm'}
+        value={counts.opted_out.toLocaleString()}
+        hint={counts.opted_out ? 'Messages to them are blocked' : 'Nobody has unsubscribed'}
+      />
+      <KpiTile
+        label="Opt-out rate · 30d"
+        icon="chart"
+        tone={rateTone}
+        value={pct(optOutRate30d)}
+        aside={<Sparkline series={series} />}
+        hint={reached30d ? `${plural(optOuts30d, 'opt-out')} of ${reached30d.toLocaleString()} messaged` : 'No messages sent yet'}
+      />
+    </KpiGrid>
   );
 }
 
@@ -244,13 +236,7 @@ function Sparkline({ series }) {
 }
 
 function StatsSkeleton() {
-  return (
-    <div className="stats">
-      {[0, 1, 2].map((i) => (
-        <Skeleton key={i} h={104} r={16} />
-      ))}
-    </div>
-  );
+  return <KpiSkeleton count={3} />;
 }
 
 // ── Explainer ─────────────────────────────────────────────────────
@@ -364,8 +350,8 @@ function ContactsCard({ capi, stats, refreshKey, onChanged, onRecord }) {
   const items = data?.items || [];
 
   return (
-    <div className="card">
-      <div className="toolbar">
+    <div className="card lc-tablecard">
+      <div className="toolbar lc-toolbar">
         <div className="input-icon cs-search">
           <Icon name="search" size={15} />
           <input className="input" placeholder="Search name or phone" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -397,11 +383,11 @@ function ContactsCard({ capi, stats, refreshKey, onChanged, onRecord }) {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <Empty icon={debounced || status ? 'search' : 'shield'} title={debounced || status ? 'No matching contacts' : 'No consent activity yet'}>
+        <EmptyState flat icon={debounced || status ? 'search' : 'shield'} title={debounced || status ? 'No matching contacts' : 'No consent activity yet'}>
           {debounced || status
             ? 'Try a different search or filter.'
             : 'Contacts appear here as soon as someone messages you, replies STOP, or a workflow or teammate records their consent.'}
-        </Empty>
+        </EmptyState>
       ) : (
         <>
           <div className={`table-wrap ${loading ? 'cs-loading' : ''}`}>

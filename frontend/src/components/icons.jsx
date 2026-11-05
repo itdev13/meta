@@ -112,6 +112,32 @@ const P = {
       <path d="M2 10h20" />
     </>
   ),
+  chart: (
+    <>
+      <path d="M3 3v18h18" />
+      <path d="M8 16v-4M12.5 16V8M17 16v-6" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  flow: (
+    <>
+      <rect x="3" y="3" width="7" height="6" rx="1.5" />
+      <rect x="14" y="15" width="7" height="6" rx="1.5" />
+      <path d="M6.5 9v3.5a2 2 0 0 0 2 2H17.5V15" />
+    </>
+  ),
+  smartphone: (
+    <>
+      <rect x="6" y="2.5" width="12" height="19" rx="2.5" />
+      <path d="M11 18.5h2" />
+    </>
+  ),
+  sparkle: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z" />,
 };
 
 export function Icon({ name, size = 16, stroke = 2, className, style }) {

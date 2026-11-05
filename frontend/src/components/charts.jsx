@@ -342,13 +342,17 @@ export function Sparkline({ values = [], width = 96, height = 28, label }) {
   );
 }
 
-/** Stat tile: label · value · sub · optional sparkline (de-emphasis line, accent end). */
-export function KpiStat({ label, value, unit, sub, icon, spark, tone, loading }) {
+/** Stat tile: icon chip · label · value · sub · optional sparkline. accent: brand | teal | info | violet | amber | calm */
+export function KpiStat({ label, value, unit, sub, icon, spark, tone, loading, accent = 'brand' }) {
   return (
-    <div className={`card kpi ${tone ? `kpi-${tone}` : ''}`}>
-      <div className="kpi-k">
-        {icon && <Icon name={icon} size={14} />}
-        {label}
+    <div className={`card kpi kpi-accent-${accent} ${tone ? `kpi-${tone}` : ''}`}>
+      <div className="kpi-top">
+        {icon && (
+          <span className="kpi-ic">
+            <Icon name={icon} size={14} />
+          </span>
+        )}
+        <span className="kpi-k">{label}</span>
       </div>
       {loading ? (
         <div className="skeleton" style={{ height: 30, width: '60%', marginTop: 8 }} />

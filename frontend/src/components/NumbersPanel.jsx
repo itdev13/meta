@@ -104,11 +104,26 @@ export default function NumbersPanel({ locationId, locationName, numbers, limit,
   return (
     <>
       {limit != null && !compact && (
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-          <div className="muted">
-            <b style={{ color: 'var(--ink)' }}>{occupying}</b> of {plural(limit, 'number')} in use
+        <div className={`lc-usage ${atLimit ? 'full' : ''}`}>
+          <div className="lc-usage-main">
+            <span className="lc-usage-k">Plan usage</span>
+            <span className="lc-usage-v">
+              <b className="tnum">{occupying}</b> of {plural(limit, 'number')} in use
+            </span>
           </div>
-          {lockedReason && <div className="muted" style={{ fontSize: 12.5 }}>{lockedReason}</div>}
+          <div className={`lc-usage-meter ${limit > 12 ? 'bar' : ''}`} aria-hidden="true">
+            {limit > 12 ? (
+              <span className="on" style={{ width: `${Math.min(100, (occupying / limit) * 100)}%` }} />
+            ) : (
+              Array.from({ length: Math.max(limit, 1) }, (_, i) => <span key={i} className={i < occupying ? 'on' : ''} />)
+            )}
+          </div>
+          {lockedReason && (
+            <div className="lc-usage-note">
+              <Icon name="lock" size={13} />
+              {lockedReason}
+            </div>
+          )}
         </div>
       )}
 
@@ -226,10 +241,11 @@ function NumberCard({ n, usersById, canManage, onRelink, onResume, onPause, onDe
   const inboundOff = n.settings?.disableIncoming;
 
   return (
-    <div className={`card ncard ${dim ? 'dim' : ''}`}>
+    <div className={`card ncard lc-ncard tone-${meta.tone} ${dim ? 'dim' : ''}`}>
       <div className="row" style={{ alignItems: 'flex-start' }}>
         <div className="wa">
           <WaGlyph size={24} />
+          <span className={`lc-wa-dot ${meta.tone} ${LIVE.has(n.status) ? 'live' : ''}`} aria-hidden="true" />
         </div>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row nm-title" style={{ gap: 6 }}>
@@ -273,11 +289,11 @@ function NumberCard({ n, usersById, canManage, onRelink, onResume, onPause, onDe
         )}
       </div>
 
-      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+      <div className="row lc-ncard-status" style={{ justifyContent: 'space-between', gap: 8 }}>
         <Pill tone={meta.tone} dot live={LIVE.has(n.status)}>
           {meta.label}
         </Pill>
-        <span className="muted" style={{ fontSize: 12, textAlign: 'right' }}>
+        <span className="muted lc-ncard-when" style={{ fontSize: 12, textAlign: 'right' }}>
           {n.status === 'connected' ? `Active ${timeAgo(n.lastMessageAt || n.connectedAt)}` : n.lastDisconnectAt ? `Since ${timeAgo(n.lastDisconnectAt)}` : ''}
         </span>
       </div>
@@ -317,15 +333,19 @@ function NumberCard({ n, usersById, canManage, onRelink, onResume, onPause, onDe
 
       {n.lastError && n.status !== 'connected' && <div className="err-note">{n.lastError}</div>}
 
-      {canManage && relink && (
-        <Button variant="primary" icon="qr" onClick={onRelink}>
-          Link again
-        </Button>
-      )}
-      {canManage && (n.status === 'paused' || n.status === 'disconnected') && n.pausedReason !== 'agency_disabled' && n.pausedReason !== 'plan_limit' && (
-        <Button icon="play" onClick={onResume}>
-          Reconnect
-        </Button>
+      {canManage && (relink || ((n.status === 'paused' || n.status === 'disconnected') && n.pausedReason !== 'agency_disabled' && n.pausedReason !== 'plan_limit')) && (
+        <div className="lc-ncard-actions">
+          {relink && (
+            <Button variant="primary" icon="qr" onClick={onRelink}>
+              Link again
+            </Button>
+          )}
+          {(n.status === 'paused' || n.status === 'disconnected') && n.pausedReason !== 'agency_disabled' && n.pausedReason !== 'plan_limit' && (
+            <Button icon="play" onClick={onResume}>
+              Reconnect
+            </Button>
+          )}
+        </div>
       )}
     </div>
   );
