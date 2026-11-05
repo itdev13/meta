@@ -921,7 +921,7 @@ button.nm-user:hover { background: var(--surface-2); }
 .nm-ghint { font-weight: 650; }
 .nm-ghint.on { color: var(--ok); }
 .nm-ghint.off { color: var(--err); }
-.nm-ghint.auto { color: var(--ink-3); font-weight: 550; }
+.nm-ghint.wait { color: var(--ink-3); font-weight: 550; }
 
 @media (max-width: 720px) {
   .nm-set { grid-template-columns: 1fr; gap: 16px; min-height: 0; }
@@ -2221,3 +2221,21 @@ button.nm-user:hover { background: var(--surface-2); }
 .al-rows { border-top: 1px solid var(--line-2); }
 .modal-foot .spacer { flex: 1; }
 @media (max-width: 520px) { .al-meta span + span::before { display: none; } .al-list input { min-width: 120px; } }
+
+/* ── Groups entry on the number card + groups master switch ───────── */
+.nm-groups-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 11px; border: 1px dashed var(--line-2, #d9ddd8); border-radius: 11px; background: transparent; color: var(--ink-2); font: inherit; text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
+.nm-groups-btn:hover { background: var(--surface-2, #f6f7f5); border-color: var(--ink-4, #b9bfb8); }
+.nm-groups-btn.on { border-style: solid; border-color: #e3d6f8; background: #faf7fe; }
+.nm-groups-btn.on:hover { background: #f3ecfd; }
+.nm-groups-btn .grow { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nm-groups-btn b { font-size: 13px; color: var(--ink); font-weight: 650; }
+.nm-groups-btn .grow > span { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm-groups-ic { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 9px; background: var(--surface-2, #f1f3f0); color: var(--ink-3); }
+.nm-groups-btn.on .nm-groups-ic { background: #ece2fb; color: #6a3fc0; }
+.nm-groups-state { flex: none; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; color: var(--ink-3); background: var(--surface-2, #f1f3f0); }
+.nm-groups-state.on { color: #6a3fc0; background: #ece2fb; }
+
+.grp-master { border: 1px solid var(--line, #e6e8e4); border-radius: 13px; padding: 13px 14px; background: var(--surface-2, #f7f8f6); display: flex; flex-direction: column; gap: 12px; }
+.grp-master.on { background: #faf7fe; border-color: #e3d6f8; }
+.grp-master-top { display: flex; align-items: center; gap: 12px; }
+.grp-master-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid #e9e0f7; }

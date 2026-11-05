@@ -214,7 +214,7 @@ export default function NumbersPanel({ locationId, locationName, numbers, limit,
           n={numbers.find((x) => x.id === groupsFor.id) || groupsFor}
           locationId={locationId}
           onClose={() => setGroupsFor(null)}
-          onEnableSync={() => run(() => api.update(groupsFor.id, { settings: { syncGroups: true } }), 'Group sync turned on')}
+          onSetSync={(v) => run(() => api.update(groupsFor.id, { settings: { syncGroups: v } }), v ? 'Groups now sync to Conversations' : 'Group sync turned off')}
           onChanged={onChanged}
         />
       )}
@@ -251,12 +251,6 @@ function NumberCard({ n, usersById, canManage, onRelink, onResume, onPause, onDe
           <div className="row nm-title" style={{ gap: 6 }}>
             <span className="phone">{numberName(n)}</span>
             {n.isDefault && <span className="default-tag">Default</span>}
-            {n.settings?.syncGroups && (
-              <span className="grp-tag" title="WhatsApp groups sync to the CRM">
-                <Icon name="users" size={11} />
-                Groups
-              </span>
-            )}
             {proxy && (
               <span className="nm-flag" title={`Connects through a proxy in ${countryName(proxy)}`}>
                 <span className="nm-flag-emoji" aria-hidden="true">
@@ -312,6 +306,26 @@ function NumberCard({ n, usersById, canManage, onRelink, onResume, onPause, onDe
           <div className="v">{n.totals.outbound}</div>
         </div>
       </div>
+
+      {canManage && n.status === 'connected' && (
+        <button type="button" className={`nm-groups-btn ${n.settings?.syncGroups ? 'on' : ''}`} onClick={onGroups}>
+          <span className="nm-groups-ic">
+            <Icon name="users" size={15} />
+          </span>
+          <span className="grow">
+            <b>WhatsApp groups</b>
+            <span>
+              {n.settings?.syncGroups
+                ? n.settings?.groupMode === 'selected'
+                  ? 'Selected groups sync to Conversations'
+                  : 'All groups sync to Conversations'
+                : 'Not syncing to Conversations'}
+            </span>
+          </span>
+          <span className={`nm-groups-state ${n.settings?.syncGroups ? 'on' : ''}`}>{n.settings?.syncGroups ? 'On' : 'Off'}</span>
+          <Icon name="chevron" size={15} />
+        </button>
+      )}
 
       {(assigned.length > 0 || inboundOff) && (
         <div className="nm-foot">
@@ -1224,15 +1238,16 @@ function ShareLinkModal({ locationId, numbers, initialNumberId, onClose }) {
 
 // ── WhatsApp groups (feature: groups) ───────────────────────────────
 
-function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
+function GroupsModal({ n, locationId, onClose, onSetSync, onChanged }) {
   const gapi = useMemo(() => groupsApi(locationId), [locationId]);
   const act = useAction();
+  const toast = useToast();
   const [state, setState] = useState({ loading: true, error: '', groups: [], syncGroups: !!n.settings?.syncGroups });
   const [mode, setMode] = useState(n.settings?.groupMode || 'all');
   const [modeBusy, setModeBusy] = useState(false);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all'); // all | on | off
-  const [busy, setBusy] = useState(null); // jid being linked
+  const [syncBusy, setSyncBusy] = useState(false);
   const [toggling, setToggling] = useState(() => new Set());
   const [refreshing, setRefreshing] = useState(false);
 
@@ -1257,15 +1272,24 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
     load(false);
   }, [load]);
 
-  const syncOn = state.syncGroups || !!n.settings?.syncGroups;
-  // `enabled` is the server's effective state; fall back to explicit choice → mode.
-  const isOn = (g) => (typeof g.enabled === 'boolean' ? g.enabled : typeof g.explicit === 'boolean' ? g.explicit : mode === 'all');
+  const syncOn = state.syncGroups;
+  // `enabled` is the server's per-group state; fall back to explicit choice → mode.
+  const groupOn = (g) => (typeof g.enabled === 'boolean' ? g.enabled : typeof g.explicit === 'boolean' ? g.explicit : mode === 'all');
+  // What actually reaches Conversations: the number's master switch AND the group's own switch.
+  const isOn = (g) => syncOn && groupOn(g);
   const term = q.trim().toLowerCase();
   const shown = state.groups.filter(
     (g) => (!term || (g.subject || '').toLowerCase().includes(term)) && (filter === 'all' || (filter === 'on' ? isOn(g) : !isOn(g))),
   );
-  const linkedCount = state.groups.filter((g) => g.mapped).length;
   const onCount = state.groups.filter(isOn).length;
+
+  const setSync = async (v) => {
+    setSyncBusy(true);
+    const r = await onSetSync(v);
+    setSyncBusy(false);
+    if (r !== undefined) setState((x) => ({ ...x, syncGroups: v }));
+    return r !== undefined;
+  };
 
   const changeMode = async (next) => {
     if (next === mode) return;
@@ -1286,28 +1310,37 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
     onChanged?.();
   };
 
+  /**
+   * One switch per group. Turning one on also turns on the number's group sync (if it was off) and
+   * creates the group's CRM contact right away, so it shows up in Conversations before anyone writes.
+   */
   const toggleGroup = async (g, enabled) => {
     setToggling((x) => new Set(x).add(g.jid));
-    const r = await act(() => gapi.toggle(n.id, g.jid, enabled), `“${g.subject || 'Group'}” ${enabled ? 'will sync' : 'won’t sync'}`);
-    setToggling((x) => {
-      const y = new Set(x);
-      y.delete(g.jid);
-      return y;
-    });
-    if (r !== undefined) setState((x) => ({ ...x, groups: x.groups.map((y) => (y.jid === g.jid ? { ...y, enabled, explicit: enabled } : y)) }));
+    const done = () =>
+      setToggling((x) => {
+        const y = new Set(x);
+        y.delete(g.jid);
+        return y;
+      });
+    if (enabled && !syncOn && !(await setSync(true))) return done();
+    const r = await act(() => gapi.toggle(n.id, g.jid, enabled), enabled ? '' : `“${g.subject || 'Group'}” won’t sync`);
+    if (r === undefined) return done();
+    setState((x) => ({ ...x, groups: x.groups.map((y) => (y.jid === g.jid ? { ...y, enabled, explicit: enabled } : y)) }));
+    if (enabled && !g.mapped) {
+      const l = await act(() => gapi.link(g.jid, n.id), `“${g.subject || 'Group'}” is now in Conversations`);
+      if (l) setState((x) => ({ ...x, groups: x.groups.map((y) => (y.jid === g.jid ? { ...y, mapped: true, contactId: l.contactId } : y)) }));
+    } else if (enabled) {
+      toast(`“${g.subject || 'Group'}” syncs to Conversations`);
+    }
+    onChanged?.();
+    return done();
   };
 
-  const link = async (g) => {
-    setBusy(g.jid);
-    const r = await act(() => gapi.link(g.jid, n.id), `“${g.subject || 'Group'}” linked to the CRM`);
-    if (r) setState((x) => ({ ...x, groups: x.groups.map((y) => (y.jid === g.jid ? { ...y, mapped: true, contactId: r.contactId } : y)) }));
-    setBusy(null);
-  };
-
-  const hint = (g) => {
-    if (g.explicit === true) return { text: 'Explicitly enabled', tone: 'on' };
-    if (g.explicit === false) return { text: 'Explicitly disabled', tone: 'off' };
-    return { text: mode === 'all' ? 'On · follows “All groups”' : 'Off · not selected', tone: 'auto' };
+  const status = (g) => {
+    if (!syncOn) return { text: 'Off · group sync is off for this number', tone: 'off' };
+    if (!groupOn(g)) return { text: g.explicit === false ? 'Off · switched off' : 'Off · not selected', tone: 'off' };
+    if (g.mapped) return { text: 'Syncing · in Conversations', tone: 'on' };
+    return { text: 'Syncing · appears with its next message', tone: 'wait' };
   };
 
   return (
@@ -1315,7 +1348,7 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
       wide
       title="WhatsApp groups"
       subtitle={`${numberName(n)}${n.phoneNumber ? ` · ${formatPhone(n.phoneNumber)}` : ''}${
-        state.loading ? '' : ` · ${plural(state.groups.length, 'group')} · ${onCount} syncing · ${linkedCount} in CRM`
+        state.loading ? '' : ` · ${plural(state.groups.length, 'group')} · ${onCount} syncing`
       }`}
       onClose={onClose}
       footer={
@@ -1325,50 +1358,37 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
       }
     >
       <div className="stack grp-wrap" style={{ gap: 14 }}>
-        {!syncOn && (
-          <Banner
-            tone="warn"
-            icon="info"
-            title="Group sync is off for this number"
-            action={
-              onEnableSync && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={async () => {
-                    await onEnableSync();
-                    setState((x) => ({ ...x, syncGroups: true }));
-                  }}
-                >
-                  Turn on
-                </Button>
-              )
-            }
-          >
-            Linked groups can still receive replies from Conversations, but new group messages won’t sync to the CRM until you turn it on.
-          </Banner>
-        )}
-
-        <div className={`nm-mode ${syncOn ? '' : 'muted-block'}`}>
-          <div className="grow">
-            <div className="nm-subcard-t">Sync mode</div>
-            <div className="muted" style={{ fontSize: 12.5 }}>
-              {mode === 'all'
-                ? 'Every group syncs automatically. Switch off the ones you don’t want in the CRM.'
-                : 'Nothing syncs unless you switch it on below. New groups stay off until you pick them.'}
+        <div className={`grp-master ${syncOn ? 'on' : ''}`}>
+          <div className="grp-master-top">
+            <div className="grow">
+              <div className="nm-subcard-t">Sync groups to Conversations</div>
+              <div className="muted" style={{ fontSize: 12.5 }}>
+                {syncOn
+                  ? 'Group messages from this number show up in Conversations, one thread per group.'
+                  : 'Off — group messages stay on the phone. Turn this on, or switch on a group below.'}
+              </div>
             </div>
+            {syncBusy && <span className="spinner" style={{ width: 14, height: 14 }} />}
+            <Toggle on={syncOn} disabled={syncBusy} onChange={setSync} label="Sync groups to Conversations" />
           </div>
-          <div className="row" style={{ gap: 8 }}>
-            {modeBusy && <span className="spinner" style={{ width: 14, height: 14 }} />}
-            <Segmented
-              value={mode}
-              onChange={changeMode}
-              options={[
-                { value: 'all', label: 'All groups' },
-                { value: 'selected', label: 'Only selected' },
-              ]}
-            />
-          </div>
+          {syncOn && (
+            <div className="grp-master-mode">
+              <div className="muted" style={{ fontSize: 12.5 }}>
+                {mode === 'all' ? 'Every group syncs, including new ones. Switch off the ones you don’t want.' : 'Only the groups you switch on sync. New groups stay off.'}
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                {modeBusy && <span className="spinner" style={{ width: 14, height: 14 }} />}
+                <Segmented
+                  value={mode}
+                  onChange={changeMode}
+                  options={[
+                    { value: 'all', label: 'All groups' },
+                    { value: 'selected', label: 'Only selected' },
+                  ]}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grp-toolbar">
@@ -1420,7 +1440,7 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
           <div className="grp-list">
             {shown.map((g) => {
               const on = isOn(g);
-              const h = hint(g);
+              const h = status(g);
               return (
                 <div className={`grp-row ${g.mapped ? 'linked' : ''} ${on ? '' : 'nm-grp-off'}`} key={g.jid}>
                   <div className="grp-av">
@@ -1438,15 +1458,6 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
                       {g.lastActivityAt && <span>Active {timeAgo(g.lastActivityAt)}</span>}
                     </div>
                   </div>
-                  {g.mapped ? (
-                    <Pill tone={syncOn && on ? 'ok' : 'neutral'} dot>
-                      {syncOn && on ? 'Syncing' : 'In CRM'}
-                    </Pill>
-                  ) : (
-                    <Button size="sm" icon="plus" loading={busy === g.jid} disabled={!!busy && busy !== g.jid} onClick={() => link(g)}>
-                      Link to CRM
-                    </Button>
-                  )}
                   <span className="nm-gtoggle" title={on ? 'Stop syncing this group' : 'Sync this group'}>
                     <Toggle on={on} disabled={toggling.has(g.jid)} onChange={(v) => toggleGroup(g, v)} label={`Sync ${g.subject || 'group'}`} />
                   </span>
@@ -1456,7 +1467,7 @@ function GroupsModal({ n, locationId, onClose, onEnableSync, onChanged }) {
           </div>
         )}
         <div className="muted grp-foot">
-          Each linked group is one CRM contact tagged <b>whatsapp-group</b>. Group sends count toward this number’s daily limit.
+          Each group is one contact in Conversations, tagged <b>whatsapp-group</b>. Replies you send there go to the whole group and count toward this number’s daily limit.
         </div>
       </div>
     </Modal>
