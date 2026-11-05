@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { agency, loc } from '../../lib/api';
 import { useLiveStatus } from '../../lib/live';
-import { plural, subscriptionLabel } from '../../lib/format';
+import { subscriptionLabel } from '../../lib/format';
 import { Avatar, Button, Drawer, Field, Pill, Skeleton, Toggle, useAction } from '../../components/ui';
 import NumbersPanel from '../../components/NumbersPanel';
 import ActivityFeed from '../../components/ActivityFeed';
@@ -79,23 +79,22 @@ export default function SubAccountDrawer({ s, isAdmin, onClose, onChanged, onTog
         <div className="setting-row">
           <div>
             <div className="t">Plan</div>
-            <div className="d">{s.subscription?.numberLimit ? `Includes ${plural(s.subscription.numberLimit, 'number')}` : 'Billed through the marketplace'}</div>
+            <div className="d">{sub.detail}</div>
           </div>
           <Pill tone={sub.tone}>{sub.label}</Pill>
         </div>
         {isAdmin && (
-          <div className="setting-row" style={{ alignItems: 'flex-end', gap: 12 }}>
-            <Field label="Number cap" hint="Blank = plan limit / agency default">
-              <input className="input tnum" type="number" min={0} style={{ width: 140 }} value={cap} onChange={(e) => setCap(e.target.value)} />
+          <div className="sad-limits">
+            <Field label="Number cap">
+              <input className="input tnum" type="number" min={0} value={cap} onChange={(e) => setCap(e.target.value)} placeholder="No cap" />
             </Field>
-            <div className="grow">
-              <Field label="Internal note">
-                <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Rebilled at $49/mo" />
-              </Field>
-            </div>
+            <Field label="Internal note">
+              <input className="input" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Rebilled at $49/mo" />
+            </Field>
             <Button variant="primary" disabled={!dirty} loading={saving} onClick={save}>
               Save
             </Button>
+            <div className="sad-limits-hint">Leave the cap blank to use the plan’s limit (or your agency default). The note is only visible to your agency.</div>
           </div>
         )}
       </div>

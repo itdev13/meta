@@ -58,13 +58,19 @@ export function statusMeta(status, pausedReason) {
 }
 
 export function subscriptionLabel(sub) {
-  if (!sub) return { label: 'No plan', tone: 'neutral' };
+  const n = sub?.numberLimit;
+  const limit = n ? ` · up to ${n} ${n === 1 ? 'number' : 'numbers'}` : '';
+  // Billing switched off on the server → WhatsApp is free to use, whatever the record says.
+  if (sub?.required === false) return { label: 'Included', tone: 'ok', detail: `No subscription needed${limit}` };
+  if (!sub || !sub.status || sub.status === 'inactive') {
+    return { label: 'Not subscribed', tone: 'neutral', detail: 'Hasn’t picked a plan in the marketplace yet' };
+  }
   if (sub.status === 'trialing') {
     const days = sub.trialEndsAt ? Math.max(0, Math.ceil((new Date(sub.trialEndsAt) - Date.now()) / 86400000)) : sub.trialDaysLeft;
-    return { label: `Trial · ${days ?? 0}d left`, tone: 'info' };
+    return { label: `Trial · ${days ?? 0}d left`, tone: 'info', detail: `Free trial${limit}` };
   }
-  if (sub.status === 'active') return { label: sub.planName || sub.plan?.name || 'Active', tone: 'ok' };
-  if (sub.status === 'past_due') return { label: 'Payment failed', tone: 'err' };
-  if (sub.status === 'canceled') return { label: 'Canceled', tone: 'neutral' };
-  return { label: 'No plan', tone: 'neutral' };
+  if (sub.status === 'active') return { label: sub.planName || sub.plan?.name || 'Active', tone: 'ok', detail: `Paid plan${limit}` };
+  if (sub.status === 'past_due') return { label: 'Payment failed', tone: 'err', detail: 'The last marketplace payment didn’t go through' };
+  if (sub.status === 'canceled') return { label: 'Canceled', tone: 'neutral', detail: 'The plan was canceled in the marketplace' };
+  return { label: 'Not subscribed', tone: 'neutral', detail: 'Hasn’t picked a plan in the marketplace yet' };
 }

@@ -70,7 +70,7 @@ class AgencyService {
     let subAccounts = list.map((loc) => {
       const access = accessBy.get(loc.id) || null;
       const nums = sessionsBy.get(loc.id) || [];
-      const sub = subMap[loc.id] || null;
+      const sub = subMap[loc.id] || { required: this.subscription.required, status: this.subscription.required ? 'inactive' : 'active', entitled: !this.subscription.required };
       const install = installBy.get(loc.id);
       return {
         id: loc.id,
@@ -78,7 +78,7 @@ class AgencyService {
         email: loc.email || '',
         city: [loc.city, loc.country].filter(Boolean).join(', '),
         logoUrl: loc.logoUrl || '',
-        installed: install ? install.status === 'active' : !!sub,
+        installed: install ? install.status === 'active' : !!subMap[loc.id],
         allowed: AccessService.isAllowed(settings, access),
         override: access?.enabled ?? null,
         numberLimitOverride: access?.numberLimit ?? null,

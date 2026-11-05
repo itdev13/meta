@@ -148,6 +148,7 @@ class SubscriptionService {
     const map = {};
     for (const s of subs) {
       map[s.locationId] = {
+        required: this.required,
         status: s.status,
         entitled: !this.required || s.status === 'active' || s.status === 'trialing',
         planName: s.planName,
